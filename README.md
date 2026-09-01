@@ -17,11 +17,11 @@ MicelleMD is the complementary, computational-chemistry side of the same questio
 
 ## Status
 
-Early scaffolding. This repository is being established now so its development history begins with the project; the analysis modules are built out following completion of the SurfactantKit/SurfBench work that motivates it.
+Two working simulation engines (OpenMM and, via a second Linux machine, native GROMACS) and two topology routes: a coarse-grained MARTINI-style bead model (including the actual gemini two-tail/spacer architecture this PhD studies) currently running on explicitly-labeled placeholder parameters pending real MARTINI 3 literature values, and a real, no-placeholder atomistic route (GAFF/AM1-BCC via `acpype`) already producing genuine, non-placeholder molecular mechanics results. Built and minimized a real SDS anion + Na+ + explicit-water system, then scaled to a 20-molecule self-assembly test (real GROMACS bug found and fixed along the way — a duplicate force-field `[ defaults ]` directive) with a PBC-aware aggregation-clustering analysis pipeline (MDAnalysis-based, two more real bugs found and fixed: an unsupported .tpr version, and a periodic-boundary Rg-inflation bug) tested against the live, still-running trajectory. See `ROADMAP.md` and `GROMACS_SETUP.md` for the full, dated history.
 
 ## Relationship to the wider PhD work
 
-Part of a series of open surfactant/interfacial-science tools developed alongside a PhD on amidoamine-derived gemini cationic surfactants and their mixed systems. Sibling projects: SurfactantKit (analytical theory + MCP tools), and SurfQSPR (structure-to-property machine learning).
+Part of a series of open surfactant/interfacial-science tools developed alongside a PhD on amidoamine-derived gemini cationic surfactants and their mixed systems. Sibling projects: SurfactantKit (analytical theory + MCP tools), SurfQSPR (structure-to-property machine learning), and SurfQM (quantum-chemistry descriptor extraction).
 
 ## License
 
