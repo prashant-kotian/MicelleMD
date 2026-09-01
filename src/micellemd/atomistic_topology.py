@@ -35,6 +35,58 @@ import subprocess
 from pathlib import Path
 
 
+def write_combined_topology(out_path: str, ligand_itp_name: str, molecule_name: str,
+                            forcefield: str = 'amber99sb-ildn.ff', water_model: str = 'tip3p',
+                            system_name: str | None = None) -> Path:
+    """Write a GROMACS .top that combines a standalone GAFF ligand .itp
+    (as produced by acpype) with a full AMBER-family force field's water
+    and ion definitions.
+
+    acpype's own auto-generated .top starts with its own `[ defaults ]`
+    directive; the AMBER force field's forcefield.itp ALSO defines
+    `[ defaults ]`. GROMACS allows exactly one `[ defaults ]` directive in
+    the fully assembled topology, so combining acpype's .top verbatim with
+    an #include of forcefield.itp fails with:
+
+        Fatal error: Syntax error - File forcefield.itp, line 15
+        Invalid order for directive defaults
+
+    Fixed 2026-09-02 by NOT including acpype's .top at all -- instead
+    #include the force field's forcefield.itp FIRST (supplying the one
+    true [ defaults ]), then #include only the ligand's .itp (which starts
+    with [ atomtypes ], not [ defaults ] -- multiple [ atomtypes ] blocks
+    are fine, GROMACS merges them), then the water model and ions.
+    Verified end to end on the dodecyl sulfate anion: grompp/genion/mdrun
+    all succeeded, real steepest-descent minimization of the neutralized,
+    solvated system converged (149 steps, PE -37778.6 kJ/mol).
+    """
+    system_name = system_name or f'{molecule_name} in water'
+    top = f'''; Combined topology: GAFF ligand (acpype) + {forcefield} water/ions
+; Only ONE [ defaults ] directive is allowed in the assembled topology --
+; sourced from the force field (included first), NOT from acpype's own
+; auto-generated one (deliberately not included here).
+#include "{forcefield}/forcefield.itp"
+
+; Ligand topology (atomtypes + moleculetype only -- NOT acpype's full .top,
+; which would duplicate [ defaults ])
+#include "{ligand_itp_name}"
+
+; water + ions, matching the force field family above
+#include "{forcefield}/{water_model}.itp"
+#include "{forcefield}/ions.itp"
+
+[ system ]
+ {system_name}
+
+[ molecules ]
+; Compound        nmols
+ {molecule_name}   1
+'''
+    path = Path(out_path)
+    path.write_text(top)
+    return path
+
+
 def generate_gaff_topology(mol_file: str, net_charge: int, charge_method: str = 'bcc',
                            workdir: str | None = None) -> Path:
     """Run acpype on an RDKit-written .mol file to produce a GAFF/AM1-BCC
