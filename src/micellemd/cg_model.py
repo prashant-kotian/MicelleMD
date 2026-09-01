@@ -72,6 +72,45 @@ def make_linear_surfactant(name: str, n_tail_beads: int, headgroup_charge: float
     return CGMolecule(name=name, beads=beads, bonds=bonds)
 
 
+def make_gemini_surfactant(name: str, n_tail_beads: int, n_spacer_beads: int,
+                           headgroup_charge: float = 1.0) -> CGMolecule:
+    """A gemini (dimeric) CG surfactant: two head-tail units joined near the
+    headgroups by a spacer -- the actual PhD thesis architecture (amidoamine-
+    derived gemini cationic surfactants), not just a generic linear chain.
+
+    Topology: tail1 -- head1 -- spacer -- head2 -- tail2, matching the real
+    structural definition (spacer links near the headgroups, per this
+    project's own SurfBench Tier 2 Category N: 'the spacer covalently
+    connects the two head-tail halves near the headgroups'). Same
+    PLACEHOLDER bead-parameter caveat as make_linear_surfactant -- this
+    builds the correct STRUCTURE/CONNECTIVITY, not verified MARTINI physics.
+
+    n_spacer_beads: spacer length in CG beads. Real gemini spacers are
+    commonly C2-C12 alkyl chains; a single CG bead typically maps to ~4
+    heavy atoms in MARTINI, so n_spacer_beads=1 or 2 corresponds roughly to
+    the short-spacer (C2-C6ish) regime most relevant to this project's own
+    amidoamine gemini work -- exact atom-to-bead mapping still needs
+    literature verification (see ROADMAP.md open questions) before treating
+    this correspondence as precise.
+    """
+    beads = []
+    # tail 1 (built head-to-tail so bond order is contiguous: tail1 -> head1)
+    for i in range(n_tail_beads):
+        beads.append(CGBead(name=f"{name}_tail1_{i}", bead_type="C1", mass_amu=72.0))
+    head1_idx = len(beads)
+    beads.append(CGBead(name=f"{name}_head1", bead_type="Q0", mass_amu=72.0, charge=headgroup_charge))
+    spacer_start = len(beads)
+    for i in range(n_spacer_beads):
+        beads.append(CGBead(name=f"{name}_spacer{i}", bead_type="C1", mass_amu=72.0))
+    head2_idx = len(beads)
+    beads.append(CGBead(name=f"{name}_head2", bead_type="Q0", mass_amu=72.0, charge=headgroup_charge))
+    for i in range(n_tail_beads):
+        beads.append(CGBead(name=f"{name}_tail2_{i}", bead_type="C1", mass_amu=72.0))
+
+    bonds = [(i, i + 1) for i in range(len(beads) - 1)]  # linear backbone: tail1-head1-spacer-head2-tail2
+    return CGMolecule(name=name, beads=beads, bonds=bonds)
+
+
 def build_openmm_system(molecules: list[CGMolecule], box_size_nm: float = 10.0) -> tuple[openmm.System, list[tuple]]:
     """Build a minimal OpenMM System from a list of CGMolecule instances:
     particles with mass, a HarmonicBondForce for intra-molecule bonds, and
@@ -137,29 +176,61 @@ def run_stability_check(molecules: list[CGMolecule], n_steps: int = 1000, box_si
 
     import math
     stable = not (math.isnan(final_pe) or math.isinf(final_pe))
+
+    # split final positions back out per-molecule for downstream analysis
+    # (e.g. analysis.find_aggregates), which needs per-molecule grouping,
+    # not one flat particle list
+    final_positions_nm = [p.value_in_unit(unit.nanometer) for p in final_state.getPositions()]
+    per_molecule_positions = []
+    offset = 0
+    for mol in molecules:
+        n = len(mol.beads)
+        per_molecule_positions.append([tuple(final_positions_nm[offset + i]) for i in range(n)])
+        offset += n
+
     return {
         "n_particles": system.getNumParticles(),
         "n_steps_run": n_steps,
         "initial_potential_energy_kJ_mol": initial_pe,
         "final_potential_energy_kJ_mol": final_pe,
         "stable": stable,
+        "final_positions_per_molecule_nm": per_molecule_positions,
     }
 
 
 if __name__ == "__main__":
     import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from analysis import find_aggregates, aggregation_number_distribution, radius_of_gyration
+
     print(f"OpenMM version: {openmm.version.version}")
 
-    # build a toy system: 20 simple 4-bead linear surfactants in a periodic box
-    mols = [make_linear_surfactant(f"surf{i}", n_tail_beads=3) for i in range(20)]
-    print(f"Built {len(mols)} molecules, {sum(len(m.beads) for m in mols)} total beads")
+    # build a toy system: a mix of linear AND gemini surfactants, proving
+    # both topologies work through the same pipeline
+    mols = ([make_linear_surfactant(f"lin{i}", n_tail_beads=3) for i in range(12)]
+            + [make_gemini_surfactant(f"gem{i}", n_tail_beads=2, n_spacer_beads=1) for i in range(8)])
+    print(f"Built {len(mols)} molecules ({sum(len(m.beads) for m in mols)} total beads): "
+          f"12 linear (4 beads each) + 8 gemini (7 beads each)")
 
     result = run_stability_check(mols, n_steps=1000)
     print("\nStability check (proves OpenMM plumbing works, NOT physical validity -- see module docstring):")
     for k, v in result.items():
-        print(f"  {k}: {v}")
+        if k != "final_positions_per_molecule_nm":
+            print(f"  {k}: {v}")
 
     if not result["stable"]:
         print("\nFAILED -- energy diverged, something in the system setup is wrong.")
         sys.exit(1)
-    print("\nPASSED -- system remained numerically stable over the test run.")
+    print("PASSED -- system remained numerically stable over the test run.")
+
+    # real end-to-end demonstration: feed the actual simulated positions
+    # into the analysis layer built separately in analysis.py
+    positions = result["final_positions_per_molecule_nm"]
+    aggregates = find_aggregates(positions, cutoff_nm=0.6)
+    dist = aggregation_number_distribution(aggregates)
+    print(f"\nEnd-to-end analysis on real simulated (placeholder-parameter) positions:")
+    print(f"  Aggregation number distribution: {dist}")
+    print(f"  (Not a physically meaningful self-assembly result yet -- placeholder LJ parameters, "
+          f"short 1000-step run, generic grid start -- but proves cg_model.py -> analysis.py "
+          f"integration works on real simulation output, not just synthetic test positions.)")
