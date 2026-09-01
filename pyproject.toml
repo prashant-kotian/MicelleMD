@@ -11,9 +11,11 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Prashant D. Kotian" }]
 keywords = ["surfactant", "micelle", "molecular-dynamics", "coarse-grained", "self-assembly"]
+dependencies = ["openmm"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
+martini = ["vermouth"]  # real MARTINI topology-generation tooling; see cg_model.py docstring for current status
 
 [tool.setuptools.packages.find]
 where = ["src"]

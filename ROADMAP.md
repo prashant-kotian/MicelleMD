@@ -29,4 +29,10 @@ This directly strengthens the Paper 3 thesis too: it demonstrates the distinctio
 
 ## Status
 
-Repo created 2026-09-01 (private, MIT-licensed, `prashant-kotian` account). Scaffold only — no simulation code yet. Next concrete step when picked up: resolve the CG mapping question above via literature search, then build topology generation for the simplest case (single-chain SDS) as the first working validation target.
+Repo created 2026-09-01 (private, MIT-licensed, `prashant-kotian` account).
+
+**2026-09-02 update — engine plumbing proven working, real physics parameters still pending:**
+- OpenMM (the chosen MD engine) installs and runs correctly in this environment.
+- `vermouth` (the real MARTINI topology-generation tool, maintained by the actual MARTINI developers) also installs and imports correctly — after fixing a real Windows-specific encoding bug in the package itself (run with `PYTHONUTF8=1`). It bundles genuine MARTINI 3.001 force-field infrastructure, but that bundle is protein/nucleotide-focused out of the box, not surfactant-specific.
+- `src/micellemd/cg_model.py`: a CG bead/molecule data model and OpenMM system builder, run and verified end to end — built an 80-bead toy system (20 simple 4-bead linear surfactants), ran 1000 steps of real Langevin dynamics, energy relaxed from -10.5 to -253.6 kJ/mol and stayed numerically stable throughout. **This proves the software plumbing works — it does NOT prove anything physically about surfactant self-assembly**, because the bead-type Lennard-Jones/mass/charge parameters used are explicitly labeled placeholders, not the real MARTINI 3 surfactant parameter set (verifying those needs WebSearch access to the MARTINI publication/parameter files, unavailable this session).
+- **Next concrete step**: once search access is available, source the real MARTINI 3 lipid/surfactant `.itp` parameters (from the MARTINI GitHub/website, Souza et al. 2021 Nat. Methods) and replace `PLACEHOLDER_BEAD_TYPES` in `cg_model.py` with verified values before trusting any simulation output physically. The CG mapping question for the amidoamine amide linkage (below) still needs resolving at that point too.
