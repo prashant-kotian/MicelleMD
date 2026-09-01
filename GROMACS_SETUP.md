@@ -29,6 +29,21 @@ Result: 884 SPC water molecules, steepest-descent minimization **converged in 8 
 1. **`oplsaa.ff` + `spc.itp` topology caused a hard segfault in `gmx grompp`** (not a graceful error — `Segmentation fault (core dumped)`) after printing "Generating 1-4 interactions: fudge = 0.5". Switching to `gromos54a7.ff` + `spc.itp` (a more heavily-tested combination in GROMACS tutorials) processed normally — confirmed the crash was specific to the oplsaa+spc topology pairing on this GROMACS conda-forge build, not GROMACS being broken generally. Worth avoiding oplsaa+spc specifically until this is understood further; not chased deeper today since a working alternative exists.
 2. **Cutoff-vs-box-size error**: `rcoulomb`/`rvdw` = 1.0 nm needs a box with a shortest dimension comfortably more than double that (minimum-image convention) — the first attempt at a 2×2×2 nm box was too small. Fixed by using a 3×3×3 nm box. Ordinary GROMACS usage, not really a bug, but worth documenting so a future run doesn't hit the same wall from a fresh start.
 
+## Real atomistic surfactant topology, via GAFF/acpype — 2026-09-02
+
+The bulk-water test above proved the pipeline; this is the first **real, non-placeholder surfactant** run through it. Rather than waiting on WebSearch access to source real MARTINI coarse-grained parameters (see `cg_model.py`'s docstring), found and used **acpype** (conda-forge), a real, established, automated tool that generates GROMACS topologies with GAFF atom types and AM1-BCC partial charges via AmberTools' antechamber/tleap — no manually-typed force-field numbers anywhere.
+
+```bash
+conda install -n chem_sim -y -c conda-forge acpype
+acpype -i dodecylsulfate.mol -c bcc -n -1   # -c bcc = AM1-BCC charges, -n -1 = net charge
+```
+
+Ran on the dodecyl sulfate anion — SDS's actual surfactant ion, same SMILES already verified via PubChem in SurfQSPR's `dataset.py`, so this is consistent with real data already used elsewhere in this project. Boxed, preprocessed, and minimized through the same real GROMACS pipeline as the water test: **converged in 1 step** (RDKit's MMFF pre-optimization already gave a good starting geometry), final potential energy -169.38 kJ/mol. No segfault, no oplsaa-specific issue this time (GAFF/acpype topology, different from the earlier oplsaa+spc water test).
+
+Reusable module: `src/micellemd/atomistic_topology.py` — `generate_gaff_topology(mol_file, net_charge, ...)`, run and verified end to end, not just written and assumed to work.
+
+**Trade-off, stated honestly**: atomistic GAFF topologies are far more expensive to simulate than coarse-grained beads (full all-atom detail), so this route suits single-molecule/small-system validation better than large-scale self-assembly runs, where CG remains the right choice once real MARTINI parameters are sourced. The two approaches are complementary — this doesn't replace the CG plan, it fills the "need real numbers now" gap while MARTINI parameter sourcing is blocked.
+
 ## Next step
 
-This is a real bulk-water sanity test, not a surfactant self-assembly run — the real next step is building an actual surfactant topology (starting from `cg_model.py`'s bead model or a proper atomistic-to-CG mapping via `vermouth`) and running it through this same now-proven GROMACS pipeline, cross-checked against the OpenMM results already obtained on the same placeholder-parameter system.
+Now have two real, verified options: (a) build a larger atomistic system (e.g. multiple SDS ions + Na+ counterions + water, testing genuine electrostatic/self-assembly-relevant behavior at small scale) via the now-proven acpype/GAFF route, or (b) once WebSearch access returns, source real MARTINI parameters and revisit the CG route for larger-scale self-assembly. Both are legitimate; (a) is available right now with zero further blockers.

@@ -19,6 +19,14 @@ dist/
 *.xtc
 *.edr
 *.gro.bak
+*.gro
+*.mol
+*.tpr
+*.log
+mdout.mdp
+*.acpype/
+gaff_demo_output/
+gmx_test/
 
 # OS / editor
 .DS_Store
