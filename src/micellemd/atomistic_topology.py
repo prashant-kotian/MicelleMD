@@ -37,7 +37,7 @@ from pathlib import Path
 
 def write_combined_topology(out_path: str, ligand_itp_name: str, molecule_name: str,
                             forcefield: str = 'amber99sb-ildn.ff', water_model: str = 'tip3p',
-                            system_name: str | None = None) -> Path:
+                            system_name: str | None = None, n_molecules: int = 1) -> Path:
     """Write a GROMACS .top that combines a standalone GAFF ligand .itp
     (as produced by acpype) with a full AMBER-family force field's water
     and ion definitions.
@@ -80,7 +80,7 @@ def write_combined_topology(out_path: str, ligand_itp_name: str, molecule_name: 
 
 [ molecules ]
 ; Compound        nmols
- {molecule_name}   1
+ {molecule_name}   {n_molecules}
 '''
     path = Path(out_path)
     path.write_text(top)

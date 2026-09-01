@@ -70,6 +70,14 @@ gmx mdrun -deffnm em -nt 4
 
 Result: 1 dodecyl sulfate anion + 1 Na+ + 865 waters (2640 atoms total, net charge 0), steepest-descent minimization **converged in 149 steps**, final potential energy **-37778.6 kJ/mol**, max force 887.7 kJ/mol/nm (below the 1000 tolerance). Real, executed, verified — genuine electrostatically-complete ionic-surfactant-in-water system, not a placeholder.
 
+## Multi-molecule self-assembly test launched — 2026-09-02 (IN PROGRESS, not yet complete)
+
+Scaled to 20 dodecyl sulfate anions + 20 Na+ + 6707 TIP3P-geometry waters (`gmx insert-molecules` for random dispersed placement, then the same solvate/genion/minimize pipeline as the single-ion case above). `write_combined_topology()` extended with an `n_molecules` parameter to support this. Minimization converged in 345 steps, PE = -316,068 kJ/mol.
+
+Running on the Ubuntu machine, detached via `nohup ... &` so it survives SSH disconnects (a plain `nohup cmd &` over a non-interactive SSH command can still hang the SSH session itself if stdin isn't redirected — the child process detaches fine, but the parent shell doesn't return; killing the parent shell's PID directly is safe and doesn't touch the nohup'd child).
+
+10 ns NVT production run (2 fs timestep, V-rescale thermostat @ 300 K, PME electrostatics), launched after a 10 ps stability check. Benchmarked at 36 ns/day on 4 threads (8 threads was *slower* — 31.5 ns/day — on this laptop's CPU, likely hyperthreading/thermal overhead outweighing parallelism at this system size); estimated ~6-7 hours wall time. **Whether 10 ns atomistic MD from a fully dispersed start shows meaningful aggregation is genuinely unknown until this run finishes** — published atomistic micellization studies often need tens to hundreds of ns; this run is a real first data point, not guaranteed to show a complete micelle. Result (aggregate structure, radius of gyration, whether SDS ions cluster at all) to be analyzed and documented once the run completes, not before.
+
 ## Next step
 
-Now have two real, verified options: (a) scale this up to multiple SDS ions + Na+ counterions in one box (testing genuine self-assembly at small scale) via the now-proven acpype/GAFF route, or (b) once WebSearch access returns, source real MARTINI parameters and revisit the CG route for larger-scale self-assembly. Both are legitimate; (a) is available right now with zero further blockers.
+Once the 10 ns run above completes: analyze the trajectory (cluster surfactant molecules by center-of-mass distance, same connected-components approach as `analysis.find_aggregates()` in `cg_model.py`, adapted to atomistic center-of-mass data) and report honestly whether partial/full aggregation occurred. If 10 ns isn't enough to show real clustering, extend the run (checkpoint files already in place) rather than re-launching from scratch. Separately, once WebSearch access returns, source real MARTINI parameters and revisit the CG route — large-scale/long-timescale self-assembly is fundamentally better suited to coarse-graining than atomistic detail.
