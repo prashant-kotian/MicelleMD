@@ -1,0 +1,32 @@
+# MicelleMD Roadmap
+
+Working plan, consolidated from PhD project discussion (2026-09-01/02). Not started yet — this captures the scope and design decisions already made so nothing gets lost before work actually begins, following completion of Paper 3.
+
+## Objective
+
+SurfactantKit computes CPP and aggregation number as **closed-form geometric estimates** from Tanford's tail-volume/length formulas — a fast, analytical approximation, explicitly documented in SurfactantKit itself as "a geometric estimate, not a substitute for aggregation numbers measured directly." MicelleMD is the real-computation complement: *simulate* the same surfactant self-assembling and measure aggregation number, shape, and packing directly from the simulation, rather than estimating it from a single-molecule geometric argument.
+
+This directly strengthens the Paper 3 thesis too: it demonstrates the distinction between "AI recalling/estimating a number" and "actually running the physics" using the project's own tooling as the worked example — SurfactantKit's *estimate* vs. MicelleMD's *simulation* of the identical physical quantity (aggregation number) is a clean, citable illustration of exactly the gap Paper 3's benchmark is built to measure.
+
+## Planned technical approach
+
+- **Method**: coarse-grained MD, MARTINI-style force field (not atomistic — computationally tractable for self-assembly timescales, standard choice in the surfactant-CG-MD literature).
+- **Engine**: thin wrapper over an established MD package (GROMACS or OpenMM) — deliberately not a from-scratch MD implementation. The scientific/engineering contribution is the surfactant-specific topology generation and analysis layer, not the integrator.
+- **Topology generation**: automated construction of CG surfactant topologies for the surfactant classes already central to this PhD's work — single-chain ionic/nonionic, gemini (two-tail, spacer-linked), and amidoamine-derived architectures specifically (the amide linkage and its hydrogen-bonding behavior is a nontrivial CG-mapping decision worth getting right, not a standard case the usual MARTINI surfactant library covers off the shelf).
+- **Simulation**: self-assembly runs starting from random/dispersed initial configuration, standard approach for observing spontaneous micellization in CG-MD.
+- **Analysis outputs**:
+  - Aggregation number distribution (not just a single mean — real micelles are polydisperse, and reporting the distribution rather than a point estimate is itself a more honest comparison against SurfactantKit's single-number geometric estimate)
+  - Micelle shape descriptors: radius of gyration, asphericity/eccentricity
+  - Solvent-accessible surface area (SASA)
+  - Counterion association/binding degree (a real-computation cross-check against SurfactantKit's `counterion_binding_degree`, which is itself a conductometric-slope-method *estimate*, not a first-principles calculation — same "estimate vs. simulate" comparison pattern)
+- **Comparison hooks**: explicit, built-in comparison utility that runs the *same* surfactant through both SurfactantKit's geometric aggregation-number estimate and MicelleMD's simulated result, reporting agreement/disagreement — this comparison IS a core planned deliverable, not an afterthought.
+
+## Open design questions (to resolve when work starts)
+
+- Exact CG mapping scheme for the amidoamine amide linkage (standard MARTINI bead types may not cleanly represent amide hydrogen-bonding behavior — may need a validated custom bead assignment, itself worth literature-checking before hardcoding, per this project's established "verify before hardcode" discipline).
+- Which specific surfactants to validate against first — likely reuse the same literature-validated systems already in SurfactantKit's `literature_validation_notes.md` (e.g. SDS, DTAB, CTAB) where independent real aggregation-number measurements already exist (Bales et al. 1998's ~44.8-54.2 range for SDS is a ready-made validation target).
+- Compute resource planning — CG-MD self-assembly runs are far more compute-intensive than anything in SurfactantKit; needs its own resource/timeline plan before committing to a run schedule.
+
+## Status
+
+Repo created 2026-09-01 (private, MIT-licensed, `prashant-kotian` account). Scaffold only — no simulation code yet. Next concrete step when picked up: resolve the CG mapping question above via literature search, then build topology generation for the simplest case (single-chain SDS) as the first working validation target.
