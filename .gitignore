@@ -1,0 +1,27 @@
+# Secrets / env — never commit
+*.key
+*api*key*
+.env
+.env.*
+*_secrets*
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# MD outputs (large; regenerate, don't track)
+*.trr
+*.xtc
+*.edr
+*.gro.bak
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

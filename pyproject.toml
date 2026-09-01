@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "micellemd"
+version = "0.0.1"
+description = "Coarse-grained molecular dynamics toolkit for surfactant self-assembly."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Prashant D. Kotian" }]
+keywords = ["surfactant", "micelle", "molecular-dynamics", "coarse-grained", "self-assembly"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
