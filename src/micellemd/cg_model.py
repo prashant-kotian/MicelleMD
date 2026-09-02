@@ -1,28 +1,43 @@
 """Coarse-grained bead/molecule data model and OpenMM system builder.
 
-IMPORTANT — read before using for anything beyond a plumbing test:
-The bead types, masses, and Lennard-Jones parameters below are DELIBERATELY
-GENERIC PLACEHOLDERS, not the real MARTINI 3 surfactant parameter set. Real
-MARTINI nonbonded parameters (the full bead-type interaction matrix) come
-from the MARTINI 3 publication and its official .itp parameter files
-(Souza et al. 2021, Nat. Methods) and were not available to verify this
-session (WebSearch budget exhausted) -- per this project's established
-"verify before hardcode" discipline, they are NOT guessed here. This module
-exists to prove the OpenMM integration/software plumbing works end to end
-(bead placement -> bonded+nonbonded forces -> integrator -> stable dynamics),
-which is a real, checkable engineering result independent of the parameter
-values. Swap PLACEHOLDER_BEAD_TYPES for the real MARTINI 3 table before
-trusting any physical conclusion from a simulation built on this module.
+Bead types and nonbonded parameters below are the REAL MARTINI 3 values
+(Souza et al. 2021, Nat. Methods, DOI: 10.1038/s41592-021-01098-3), sourced
+directly from the official `martini_v3.0.0.itp` particle-definition file
+(version 3.0.0, dated 2021-03-29 -- the exact citation given in the file
+header matches the Souza paper). That file was obtained from
+github.com/maccallumlab/martini_openmm (a peer-reviewed Martini-in-OpenMM
+implementation, Biophys. J. 2023, DOI: 10.1016/j.bpj.2023.04.007), which
+bundles the unmodified official Martini Force Field Initiative distribution
+as GROMACS-format test data -- not re-derived or guessed.
 
-vermouth (the real MARTINI topology-generation tool, maintained by the
-MARTINI developers) is installed and importable in this environment --
-confirmed working after fixing a real Windows-specific encoding bug (run
-with PYTHONUTF8=1). It bundles genuine MARTINI 3.001 force-field
-infrastructure, but that bundle is protein/nucleotide-focused, not
-surfactant-specific -- the real next step, once WebSearch is available
-again, is sourcing the actual MARTINI 3 lipid/surfactant .itp parameters
-(from the MARTINI GitHub/website) and wiring vermouth's mapping machinery
-to use them, rather than the hand-rolled generic model here.
+Bead assignment for an SDS-analog anionic surfactant (3x C1 tail + 1x Q4n
+head) matches the published MARTINI 3 SDS model (Vainikka et al. 2021,
+referenced in Frontiers in Materials 10.3389/fmats.2022.1011164), which is
+also this project's validated real-N_agg sanity check (Bales et al. 1998,
+N_agg ~ 44.8-54.2, already cited in SurfactantKit's
+literature_validation_notes.md).
+
+Cross-species (headgroup<->tail<->water) interactions are NOT well
+approximated by OpenMM's default Lorentz-Berthelot combining rule --
+MARTINI defines an explicit, non-combining nonbonded matrix, and the
+combining-rule approximation differs from the real cross terms by up to
+~2x on epsilon for these bead pairs (checked, not assumed; see
+NONBONDED_CROSS_TERMS below). build_openmm_system() therefore adds explicit
+NonbondedForce exceptions for every cross-type particle pair so the real
+MARTINI matrix (not the combining-rule approximation) governs the physics.
+
+Scope honestly stated: this module's own self-assembly test (20 small
+molecules, 1000 Langevin steps) is a software-plumbing smoke test, not a
+production-scale run -- it is not sized or run long enough to reproduce a
+quantitative aggregation number for comparison against Bales et al. A real
+quantitative CG validation needs a much larger system and longer run
+(comparable in scale to the atomistic GAFF route's 10 ns/20-molecule run),
+which is the next concrete step, not yet done here.
+
+Counterions (Na+) are not modeled as explicit particles -- the headgroup
+bead simply carries the surfactant's formal charge, an implicit-counterion
+simplification already implicit in the pre-existing model architecture,
+unchanged by this update.
 """
 
 from __future__ import annotations
@@ -34,7 +49,7 @@ import openmm.unit as unit
 @dataclass
 class CGBead:
     name: str
-    bead_type: str  # e.g. "Q0" (charged headgroup), "C1" (hydrophobic tail) -- MARTINI-style naming convention, PLACEHOLDER parameters
+    bead_type: str  # e.g. "Q4n" (charged headgroup), "C1" (hydrophobic tail) -- real MARTINI 3 bead type name, see MARTINI3_BEAD_TYPES
     mass_amu: float
     charge: float = 0.0
 
@@ -45,27 +60,47 @@ class CGMolecule:
     beads: list[CGBead]
     bonds: list[tuple[int, int]] = field(default_factory=list)  # (bead_index_i, bead_index_j)
     bond_length_nm: float = 0.47  # standard MARTINI bead spacing convention (~0.47 nm), this specific value IS the standard MARTINI bead-bead distance, not surfactant-specific
-    bond_k: float = 5000.0  # kJ/mol/nm^2 -- PLACEHOLDER, not a verified MARTINI bond force constant
+    bond_k: float = 5000.0  # kJ/mol/nm^2 -- still a generic placeholder; nonbonded params below are now real MARTINI 3, but real molecule-specific bonded (bond/angle) constants (e.g. from an actual SDS .itp) were out of scope this round and remain unverified
 
 
-# PLACEHOLDER bead type -> (mass amu, LJ sigma nm, LJ epsilon kJ/mol)
-# Generic hydrophobic/hydrophilic contrast (headgroup polar+charged,
-# tail apolar) sufficient to demonstrate phase-segregation-driven
-# self-assembly behavior in a toy system -- NOT literature-verified
-# MARTINI numbers. See module docstring.
-PLACEHOLDER_BEAD_TYPES = {
-    "Q0": {"mass": 72.0, "sigma": 0.47, "epsilon": 4.0},   # charged/polar headgroup bead (placeholder)
-    "C1": {"mass": 72.0, "sigma": 0.47, "epsilon": 3.5},   # hydrophobic tail bead (placeholder)
-    "W":  {"mass": 72.0, "sigma": 0.47, "epsilon": 5.0},   # solvent (water) bead (placeholder)
+# Real MARTINI 3 bead type -> (mass amu, LJ sigma nm, LJ epsilon kJ/mol),
+# self-interaction (same-type) values. Source: official martini_v3.0.0.itp,
+# [ atomtypes ] + [ nonbond_params ] sections -- see module docstring.
+MARTINI3_BEAD_TYPES = {
+    "Q4n": {"mass": 72.0, "sigma": 0.470, "epsilon": 5.20},  # anionic sulfate-type headgroup (real SDS bead, Vainikka et al. 2021)
+    "C1":  {"mass": 72.0, "sigma": 0.470, "epsilon": 3.39},  # apolar alkyl tail bead
+    "W":   {"mass": 72.0, "sigma": 0.470, "epsilon": 4.65},  # standard MARTINI water bead
 }
+
+# Real MARTINI 3 cross-species (different bead type) nonbonded parameters --
+# NOT derivable from the self-interaction values above via a combining rule
+# (MARTINI uses an explicit interaction matrix). Source: same
+# martini_v3.0.0.itp [ nonbond_params ] section, off-diagonal entries.
+# Checked against OpenMM's default Lorentz-Berthelot combining-rule
+# approximation: C1-W epsilon differs by ~1.9x (2.06 real vs. 3.97
+# combining), C1-Q4n epsilon differs by ~2.0x (2.143 real vs. 4.20
+# combining) -- physically significant for the hydrophobic-effect-driven
+# self-assembly this model exists to capture, hence applied as explicit
+# NonbondedForce exceptions in build_openmm_system() rather than left to
+# the default combining rule.
+NONBONDED_CROSS_TERMS = {
+    ("C1", "W"):   {"sigma": 0.470, "epsilon": 2.060},
+    ("C1", "Q4n"): {"sigma": 0.570, "epsilon": 2.143},
+    ("Q4n", "W"):  {"sigma": 0.465, "epsilon": 5.960},
+}
+
+
+def _cross_term(type_a: str, type_b: str) -> dict | None:
+    """Look up a real MARTINI cross-interaction regardless of pair order."""
+    return NONBONDED_CROSS_TERMS.get((type_a, type_b)) or NONBONDED_CROSS_TERMS.get((type_b, type_a))
 
 
 def make_linear_surfactant(name: str, n_tail_beads: int, headgroup_charge: float = 1.0) -> CGMolecule:
     """A simple linear CG surfactant: 1 headgroup bead + n_tail_beads
     hydrophobic tail beads in a chain -- structurally analogous to how a
     real MARTINI surfactant (e.g. SDS: 1 polar bead + 3 tail beads) is
-    built, using PLACEHOLDER bead parameters (see module docstring)."""
-    beads = [CGBead(name=f"{name}_head", bead_type="Q0", mass_amu=72.0, charge=headgroup_charge)]
+    built, using real MARTINI 3 bead parameters (see module docstring)."""
+    beads = [CGBead(name=f"{name}_head", bead_type="Q4n", mass_amu=72.0, charge=headgroup_charge)]
     for i in range(n_tail_beads):
         beads.append(CGBead(name=f"{name}_tail{i}", bead_type="C1", mass_amu=72.0))
     bonds = [(i, i + 1) for i in range(len(beads) - 1)]
@@ -81,9 +116,10 @@ def make_gemini_surfactant(name: str, n_tail_beads: int, n_spacer_beads: int,
     Topology: tail1 -- head1 -- spacer -- head2 -- tail2, matching the real
     structural definition (spacer links near the headgroups, per this
     project's own SurfBench Tier 2 Category N: 'the spacer covalently
-    connects the two head-tail halves near the headgroups'). Same
-    PLACEHOLDER bead-parameter caveat as make_linear_surfactant -- this
-    builds the correct STRUCTURE/CONNECTIVITY, not verified MARTINI physics.
+    connects the two head-tail halves near the headgroups'). Uses the same
+    real MARTINI 3 bead parameters as make_linear_surfactant -- the open
+    caveat here is the spacer-length-to-bead-count mapping (see
+    n_spacer_beads below), not the nonbonded physics.
 
     n_spacer_beads: spacer length in CG beads. Real gemini spacers are
     commonly C2-C12 alkyl chains; a single CG bead typically maps to ~4
@@ -98,12 +134,12 @@ def make_gemini_surfactant(name: str, n_tail_beads: int, n_spacer_beads: int,
     for i in range(n_tail_beads):
         beads.append(CGBead(name=f"{name}_tail1_{i}", bead_type="C1", mass_amu=72.0))
     head1_idx = len(beads)
-    beads.append(CGBead(name=f"{name}_head1", bead_type="Q0", mass_amu=72.0, charge=headgroup_charge))
+    beads.append(CGBead(name=f"{name}_head1", bead_type="Q4n", mass_amu=72.0, charge=headgroup_charge))
     spacer_start = len(beads)
     for i in range(n_spacer_beads):
         beads.append(CGBead(name=f"{name}_spacer{i}", bead_type="C1", mass_amu=72.0))
     head2_idx = len(beads)
-    beads.append(CGBead(name=f"{name}_head2", bead_type="Q0", mass_amu=72.0, charge=headgroup_charge))
+    beads.append(CGBead(name=f"{name}_head2", bead_type="Q4n", mass_amu=72.0, charge=headgroup_charge))
     for i in range(n_tail_beads):
         beads.append(CGBead(name=f"{name}_tail2_{i}", bead_type="C1", mass_amu=72.0))
 
@@ -114,7 +150,9 @@ def make_gemini_surfactant(name: str, n_tail_beads: int, n_spacer_beads: int,
 def build_openmm_system(molecules: list[CGMolecule], box_size_nm: float = 10.0) -> tuple[openmm.System, list[tuple]]:
     """Build a minimal OpenMM System from a list of CGMolecule instances:
     particles with mass, a HarmonicBondForce for intra-molecule bonds, and
-    a NonbondedForce (LJ + Coulomb) using PLACEHOLDER_BEAD_TYPES. Returns
+    a NonbondedForce (LJ + Coulomb) using the real MARTINI3_BEAD_TYPES self
+    terms plus explicit NONBONDED_CROSS_TERMS exceptions for cross-species
+    pairs (see module docstring for why exceptions are needed). Returns
     (system, positions) where positions are simple placed-on-a-grid
     starting coordinates -- good enough to prove the plumbing runs and is
     numerically stable, not a physically meaningful starting configuration."""
@@ -128,6 +166,7 @@ def build_openmm_system(molecules: list[CGMolecule], box_size_nm: float = 10.0) 
     nonbonded.setCutoffDistance(1.1 * unit.nanometer)
 
     positions = []
+    bead_types = []  # parallel to particle indices, needed to add cross-term exceptions below
     particle_offset = 0
     grid_spacing = 1.5  # nm, generic starting spacing, not physically tuned
     n_placed = 0
@@ -137,15 +176,31 @@ def build_openmm_system(molecules: list[CGMolecule], box_size_nm: float = 10.0) 
         row, col = divmod(n_placed, per_row)
         origin = openmm.Vec3(col * grid_spacing, row * grid_spacing, 0.5 * box_size_nm)
         for i, bead in enumerate(mol.beads):
-            params = PLACEHOLDER_BEAD_TYPES[bead.bead_type]
+            params = MARTINI3_BEAD_TYPES[bead.bead_type]
             system.addParticle(params["mass"] * unit.amu)
             nonbonded.addParticle(bead.charge, params["sigma"] * unit.nanometer, params["epsilon"] * unit.kilojoule_per_mole)
+            bead_types.append(bead.bead_type)
             positions.append(origin + openmm.Vec3(0, 0, i * mol.bond_length_nm))
         for i, j in mol.bonds:
             bond_force.addBond(particle_offset + i, particle_offset + j,
                               mol.bond_length_nm * unit.nanometer, mol.bond_k * unit.kilojoule_per_mole / unit.nanometer**2)
         particle_offset += len(mol.beads)
         n_placed += 1
+
+    # No 1-2 (bonded-pair) nonbonded exclusions here, matching this model's
+    # pre-existing (undocumented but consistent) simplification: bonded
+    # beads already interact via HarmonicBondForce, and were never excluded
+    # from LJ/Coulomb either before or after this update.
+    n_particles = len(bead_types)
+    for p1 in range(n_particles):
+        for p2 in range(p1 + 1, n_particles):
+            if bead_types[p1] == bead_types[p2]:
+                continue  # same-type pair: default combining rule already reproduces the correct self term
+            cross = _cross_term(bead_types[p1], bead_types[p2])
+            if cross is None:
+                continue
+            charge_prod = nonbonded.getParticleParameters(p1)[0] * nonbonded.getParticleParameters(p2)[0]
+            nonbonded.addException(p1, p2, charge_prod, cross["sigma"] * unit.nanometer, cross["epsilon"] * unit.kilojoule_per_mole)
 
     system.addForce(bond_force)
     system.addForce(nonbonded)
@@ -156,9 +211,10 @@ def run_stability_check(molecules: list[CGMolecule], n_steps: int = 1000, box_si
     """Real, executable plumbing test: build the system, run a short
     Langevin dynamics simulation, and confirm energy stays finite (no NaN
     blow-up) -- proves bead placement, bonded/nonbonded force setup, and
-    the integrator are wired correctly. Does NOT validate physical
-    correctness of self-assembly behavior, since the bead parameters are
-    placeholders (see module docstring)."""
+    the integrator are wired correctly. Uses real MARTINI 3 nonbonded
+    parameters but is still too small/short to be a quantitative physical
+    self-assembly validation (see module docstring "Scope honestly
+    stated")."""
     system, positions = build_openmm_system(molecules, box_size_nm)
     integrator = openmm.LangevinMiddleIntegrator(300 * unit.kelvin, 1.0 / unit.picosecond, 0.02 * unit.picosecond)
     platform = openmm.Platform.getPlatformByName("Reference")
@@ -214,7 +270,8 @@ if __name__ == "__main__":
           f"12 linear (4 beads each) + 8 gemini (7 beads each)")
 
     result = run_stability_check(mols, n_steps=1000)
-    print("\nStability check (proves OpenMM plumbing works, NOT physical validity -- see module docstring):")
+    print("\nStability check with real MARTINI 3 nonbonded parameters (proves OpenMM plumbing works; "
+          "still too small/short for quantitative physical validation -- see module docstring):")
     for k, v in result.items():
         if k != "final_positions_per_molecule_nm":
             print(f"  {k}: {v}")
@@ -229,8 +286,8 @@ if __name__ == "__main__":
     positions = result["final_positions_per_molecule_nm"]
     aggregates = find_aggregates(positions, cutoff_nm=0.6)
     dist = aggregation_number_distribution(aggregates)
-    print(f"\nEnd-to-end analysis on real simulated (placeholder-parameter) positions:")
+    print(f"\nEnd-to-end analysis on real simulated (real-MARTINI-3-parameter) positions:")
     print(f"  Aggregation number distribution: {dist}")
-    print(f"  (Not a physically meaningful self-assembly result yet -- placeholder LJ parameters, "
-          f"short 1000-step run, generic grid start -- but proves cg_model.py -> analysis.py "
-          f"integration works on real simulation output, not just synthetic test positions.)")
+    print(f"  (Not yet a quantitative self-assembly result -- real LJ parameters now, but still a "
+          f"short 1000-step run with a generic grid start on a small system -- but proves cg_model.py -> "
+          f"analysis.py integration works on real simulation output, not just synthetic test positions.)")
