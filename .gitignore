@@ -27,6 +27,7 @@ mdout.mdp
 *.acpype/
 gaff_demo_output/
 gmx_test/
+examples/cg_production_results/
 
 # OS / editor
 .DS_Store
