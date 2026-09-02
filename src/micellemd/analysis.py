@@ -29,16 +29,21 @@ def radius_of_gyration(positions: list[tuple[float, float, float]]) -> float:
 
 
 def find_aggregates(molecule_positions: list[list[tuple[float, float, float]]],
-                    cutoff_nm: float = 0.6) -> list[list[int]]:
+                    cutoff_nm: float = 0.6, box_size_nm: float | None = None) -> list[list[int]]:
     """Cluster molecules into aggregates by inter-molecule proximity: two
     molecules are in the same aggregate if ANY bead pair between them is
-    within cutoff_nm. Simple connected-components over a proximity graph --
-    not periodic-boundary-aware yet (a real limitation for a production
-    self-assembly run, flagged rather than silently ignored; fine for the
-    toy/non-periodic-distance case tested here).
+    within cutoff_nm. Simple connected-components over a proximity graph.
 
-    molecule_positions: one list of (x,y,z) bead positions per molecule.
-    Returns a list of aggregates, each a list of molecule indices.
+    box_size_nm: pass this for a real periodic production run (e.g. from
+    build_solvated_openmm_system()) -- applies minimum-image convention
+    (cubic box assumed, matching build_openmm_system()/
+    build_solvated_openmm_system()'s own cubic box construction) so
+    molecules near opposite box faces that are actually close via PBC are
+    correctly identified as neighbors. Left as None (raw Euclidean
+    distance, no wrapping) by default for backward compatibility with the
+    existing non-periodic toy-system callers/tests -- same "not periodic-
+    boundary-aware unless asked" limitation this function already had,
+    just now an explicit opt-in rather than an unconditional gap.
     """
     n_mol = len(molecule_positions)
     adjacency = {i: set() for i in range(n_mol)}
@@ -47,7 +52,12 @@ def find_aggregates(molecule_positions: list[list[tuple[float, float, float]]],
         best = float("inf")
         for pa in mol_a:
             for pb in mol_b:
-                d = math.sqrt(sum((pa[k]-pb[k])**2 for k in range(3)))
+                if box_size_nm is not None:
+                    d = math.sqrt(sum(
+                        (((pa[k] - pb[k] + box_size_nm / 2) % box_size_nm) - box_size_nm / 2) ** 2
+                        for k in range(3)))
+                else:
+                    d = math.sqrt(sum((pa[k]-pb[k])**2 for k in range(3)))
                 if d < best:
                     best = d
         return best
