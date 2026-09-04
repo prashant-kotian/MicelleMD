@@ -147,6 +147,25 @@ def make_gemini_surfactant(name: str, n_tail_beads: int, n_spacer_beads: int,
     amidoamine gemini work -- exact atom-to-bead mapping still needs
     literature verification (see ROADMAP.md open questions) before treating
     this correspondence as precise.
+
+    KNOWN GAP, sharpened 2026-09-04 against a real source (Alessandri et al.,
+    Martini 3 Coarse-Grained Force Field: Small Molecules, Adv. Theory
+    Simul. 2022, Table 1 -- the official Martini building-block reference
+    table, fetched and read directly, not recalled from memory): this
+    function goes straight from a plain apolar C1 tail bead to the charged
+    Q4n headgroup bead with a direct bond -- there is currently NO bead
+    representing the amide linkage (-C(=O)-NH-) that gives "amidoamine"
+    surfactants their name. Table 1 has no exact amide entry, but every
+    analogous carbonyl-adjacent linkage it does list (ester -C(=O)-O-CH3 =
+    N4a, aldehyde-adjacent =N6a) uses an N-type (intermediate polarity,
+    hydrogen-bond-capable) bead, not the apolar C-type used here -- real,
+    citable evidence that representing the amide linker with a plain C1
+    bead likely misses real H-bonding character, consistent with this
+    function's own long-standing "amide linkage... nontrivial CG-mapping
+    decision" caveat. Not fixed here: adding a real N-type linker bead
+    needs the same rigor the original Q4n/C1/W parameters got (real,
+    sourced self- and cross-interaction values for that bead, not just the
+    label) -- a deliberate follow-up, not a same-session bolt-on.
     """
     beads = []
     # tail 1 (built head-to-tail so bond order is contiguous: tail1 -> head1)
