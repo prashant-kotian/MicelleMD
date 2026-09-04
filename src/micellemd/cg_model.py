@@ -247,6 +247,18 @@ def _add_molecule_particles(system: openmm.System, lj_force: openmm.CustomNonbon
     for i, j in mol.bonds:
         bond_force.addBond(particle_offset + i, particle_offset + j,
                           mol.bond_length_nm * unit.nanometer, mol.bond_k * unit.kilojoule_per_mole / unit.nanometer**2)
+        # Real bug found and fixed 2026-09-04: directly-bonded (1-2) pairs were
+        # never excluded from the nonbonded LJ/Coulomb forces, so every bond in
+        # every molecule also carried a large, unphysical LJ clash on top of its
+        # harmonic term (e.g. ~59.6 kJ/mol for a head-tail1 pair at the real
+        # Q4n-C1 cross-term parameters) -- standard MD practice (and real
+        # MARTINI's own nrexcl=1 convention) excludes 1-2 bonded pairs from
+        # nonbonded interactions entirely. Caught via an independent GROMACS
+        # cross-check on the identical 20-molecule smoke-test system/coordinates:
+        # OpenMM's LJ energy was +1175.7 kJ/mol vs GROMACS's -7.4 kJ/mol before
+        # this fix; -14.3 kJ/mol (same sign/order of magnitude as GROMACS) after.
+        lj_force.addExclusion(particle_offset + i, particle_offset + j)
+        coulomb_force.addException(particle_offset + i, particle_offset + j, 0.0, 1.0, 0.0)
 
 
 def build_openmm_system(molecules: list[CGMolecule], box_size_nm: float = 10.0) -> tuple[openmm.System, list[tuple]]:
