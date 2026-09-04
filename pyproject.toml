@@ -16,6 +16,8 @@ dependencies = ["openmm"]
 [project.optional-dependencies]
 dev = ["pytest"]
 martini = ["vermouth"]  # real MARTINI topology-generation tooling; see cg_model.py docstring for current status
+# comparison.py needs surfactantkit importable -- not on PyPI, it's a sibling
+# local repo: `pip install -e ../SurfactantKit` (or wherever it's cloned).
 
 [tool.setuptools.packages.find]
 where = ["src"]
