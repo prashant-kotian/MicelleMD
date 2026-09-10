@@ -89,6 +89,24 @@ MARTINI3_BEAD_TYPES = {
     "Q4n": {"mass": 72.0, "sigma": 0.470, "epsilon": 5.20},  # anionic sulfate-type headgroup (real SDS bead, Vainikka et al. 2021)
     "C1":  {"mass": 72.0, "sigma": 0.470, "epsilon": 3.39},  # apolar alkyl tail bead
     "W":   {"mass": 72.0, "sigma": 0.470, "epsilon": 4.65},  # standard MARTINI water bead
+    # Amide-linkage bead, resolving the KNOWN GAP make_gemini_surfactant()
+    # documented since 2026-09-04. Sourced 2026-09-05 not from analogy but
+    # from the real, currently-used MARTINI 3 ceramide topology (the closest
+    # real precedent: an acyl-tail-to-headgroup amide, same chemistry as this
+    # project's amidoamine surfactants) -- downloaded directly (not
+    # AI-summarized; the file is 16MB, too large for that) from
+    # github.com/Martini-Force-Field-Initiative/M3-Lipid-Parameters/ITPs/
+    # martini_v3.0.0_ceramides_v2.itp, whose [atoms] section names the bead
+    # adjacent to the amide nitrogen "AM2", bead type SP2. Self/cross values
+    # below are from that same repo's martini_v3.0.0.itp [nonbond_params]
+    # section (grepped directly from the downloaded file, not summarized).
+    # Correction to the earlier analogy-based guess: Alessandri et al. 2022's
+    # Table 1 (no exact amide entry) suggested an intermediate-polarity
+    # N-type bead by analogy to ester/aldehyde entries -- the real ceramide
+    # precedent uses SP2, a POLAR (P-type) small bead, one level more polar
+    # than the guess. Real precedent overrides analogy, per this project's
+    # own "verify against real source" discipline.
+    "SP2": {"mass": 54.0, "sigma": 0.410, "epsilon": 3.31},
 }
 
 # Real MARTINI 3 cross-species (different bead type) nonbonded parameters --
@@ -106,6 +124,11 @@ NONBONDED_CROSS_TERMS = {
     ("C1", "W"):   {"sigma": 0.470, "epsilon": 2.060},
     ("C1", "Q4n"): {"sigma": 0.570, "epsilon": 2.143},
     ("Q4n", "W"):  {"sigma": 0.465, "epsilon": 5.960},
+    # SP2 cross-terms, sourced 2026-09-05 alongside the SP2 self-term above --
+    # same file, same [nonbond_params] section, grepped directly.
+    ("SP2", "C1"):  {"sigma": 0.430, "epsilon": 1.930},
+    ("SP2", "Q4n"): {"sigma": 0.430, "epsilon": 4.848},
+    ("SP2", "W"):   {"sigma": 0.425, "epsilon": 4.030},
 }
 
 
@@ -148,29 +171,20 @@ def make_gemini_surfactant(name: str, n_tail_beads: int, n_spacer_beads: int,
     literature verification (see ROADMAP.md open questions) before treating
     this correspondence as precise.
 
-    KNOWN GAP, sharpened 2026-09-04 against a real source (Alessandri et al.,
-    Martini 3 Coarse-Grained Force Field: Small Molecules, Adv. Theory
-    Simul. 2022, Table 1 -- the official Martini building-block reference
-    table, fetched and read directly, not recalled from memory): this
-    function goes straight from a plain apolar C1 tail bead to the charged
-    Q4n headgroup bead with a direct bond -- there is currently NO bead
-    representing the amide linkage (-C(=O)-NH-) that gives "amidoamine"
-    surfactants their name. Table 1 has no exact amide entry, but every
-    analogous carbonyl-adjacent linkage it does list (ester -C(=O)-O-CH3 =
-    N4a, aldehyde-adjacent =N6a) uses an N-type (intermediate polarity,
-    hydrogen-bond-capable) bead, not the apolar C-type used here -- real,
-    citable evidence that representing the amide linker with a plain C1
-    bead likely misses real H-bonding character, consistent with this
-    function's own long-standing "amide linkage... nontrivial CG-mapping
-    decision" caveat. Not fixed here: adding a real N-type linker bead
-    needs the same rigor the original Q4n/C1/W parameters got (real,
-    sourced self- and cross-interaction values for that bead, not just the
-    label) -- a deliberate follow-up, not a same-session bolt-on.
+    RESOLVED 2026-09-05 (was: "KNOWN GAP, sharpened 2026-09-04"). This
+    function now places a real SP2 amide-linkage bead between each tail and
+    its headgroup: tail1-amide1-head1-spacer-head2-amide2-tail2. SP2's
+    self/cross-interaction parameters are real MARTINI 3 values sourced
+    directly from the official martini_v3.0.0.itp [nonbond_params] section
+    (see MARTINI3_BEAD_TYPES' own comment for the exact provenance and the
+    real ceramide precedent this was based on), the same sourcing rigor the
+    original Q4n/C1/W values got -- not just a label bolted on.
     """
     beads = []
-    # tail 1 (built head-to-tail so bond order is contiguous: tail1 -> head1)
+    # tail 1 -> amide1 -> head1 (built head-to-tail so bond order is contiguous)
     for i in range(n_tail_beads):
         beads.append(CGBead(name=f"{name}_tail1_{i}", bead_type="C1", mass_amu=72.0))
+    beads.append(CGBead(name=f"{name}_amide1", bead_type="SP2", mass_amu=54.0))
     head1_idx = len(beads)
     beads.append(CGBead(name=f"{name}_head1", bead_type="Q4n", mass_amu=72.0, charge=headgroup_charge))
     spacer_start = len(beads)
@@ -178,14 +192,15 @@ def make_gemini_surfactant(name: str, n_tail_beads: int, n_spacer_beads: int,
         beads.append(CGBead(name=f"{name}_spacer{i}", bead_type="C1", mass_amu=72.0))
     head2_idx = len(beads)
     beads.append(CGBead(name=f"{name}_head2", bead_type="Q4n", mass_amu=72.0, charge=headgroup_charge))
+    beads.append(CGBead(name=f"{name}_amide2", bead_type="SP2", mass_amu=54.0))
     for i in range(n_tail_beads):
         beads.append(CGBead(name=f"{name}_tail2_{i}", bead_type="C1", mass_amu=72.0))
 
-    bonds = [(i, i + 1) for i in range(len(beads) - 1)]  # linear backbone: tail1-head1-spacer-head2-tail2
+    bonds = [(i, i + 1) for i in range(len(beads) - 1)]  # linear backbone: tail1-amide1-head1-spacer-head2-amide2-tail2
     return CGMolecule(name=name, beads=beads, bonds=bonds)
 
 
-_BEAD_TYPE_ORDER = ["C1", "Q4n", "W"]  # fixed enumeration for the CustomNonbondedForce type-index lookup table below
+_BEAD_TYPE_ORDER = ["C1", "Q4n", "W", "SP2"]  # fixed enumeration for the CustomNonbondedForce type-index lookup table below
 _N_BEAD_TYPES = len(_BEAD_TYPE_ORDER)
 
 
@@ -514,7 +529,8 @@ if __name__ == "__main__":
     mols = ([make_linear_surfactant(f"lin{i}", n_tail_beads=3) for i in range(12)]
             + [make_gemini_surfactant(f"gem{i}", n_tail_beads=2, n_spacer_beads=1) for i in range(8)])
     print(f"Built {len(mols)} molecules ({sum(len(m.beads) for m in mols)} total beads): "
-          f"12 linear (4 beads each) + 8 gemini (7 beads each)")
+          f"12 linear (4 beads each) + 8 gemini (9 beads each, since 2026-09-05: includes the "
+          f"real SP2 amide-linkage bead on each side, was 7)")
 
     result = run_stability_check(mols, n_steps=1000)
     print("\nStability check with real MARTINI 3 nonbonded parameters (proves OpenMM plumbing works; "

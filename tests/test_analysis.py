@@ -14,8 +14,41 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from micellemd.analysis import (
     radius_of_gyration, gyration_tensor_eigenvalues, shape_descriptors,
-    solvent_accessible_surface_area,
+    solvent_accessible_surface_area, unwrap_cluster_positions,
 )
+
+
+def test_unwrap_cluster_positions_fixes_boundary_spanning_rg():
+    """Regression test for the real 2026-09-06 bug: a 2-molecule cluster
+    straddling a periodic box boundary (one molecule's beads near x=0.1,
+    the other's near x=14.9, in a 15 nm box) is a genuine tight cluster
+    physically (true separation ~0.2 nm via the periodic wrap), but
+    computing Rg on the RAW positions gives an inflated, physically
+    implausible value -- exactly what was observed live in the running
+    CG production job (largest_aggregate_rg_nm ~11.2-11.3 nm in a 15 nm
+    box for a real aggregate that should be ~1-2 nm)."""
+    box = 15.0
+    mol_a = [(0.1, 7.5, 7.5), (0.2, 7.5, 7.5)]
+    mol_b = [(14.9, 7.5, 7.5), (14.8, 7.5, 7.5)]  # true neighbors of mol_a via the periodic wrap
+
+    raw_positions = mol_a + mol_b
+    raw_rg = radius_of_gyration(raw_positions)
+    assert raw_rg > 5.0  # the bug: wrongly huge, comparable to the box size
+
+    unwrapped = unwrap_cluster_positions([mol_a, mol_b], box_size_nm=box)
+    fixed_rg = radius_of_gyration(unwrapped)
+    assert fixed_rg < 0.5  # the real, physically correct tight-cluster value
+
+
+def test_unwrap_cluster_positions_no_op_when_not_spanning_boundary():
+    # a cluster comfortably inside the box (no periodic wrap involved)
+    # should be unchanged by unwrapping -- same Rg either way
+    box = 15.0
+    mol_a = [(5.0, 5.0, 5.0), (5.2, 5.0, 5.0)]
+    mol_b = [(5.4, 5.0, 5.0), (5.6, 5.0, 5.0)]
+    raw_rg = radius_of_gyration(mol_a + mol_b)
+    unwrapped_rg = radius_of_gyration(unwrap_cluster_positions([mol_a, mol_b], box_size_nm=box))
+    assert unwrapped_rg == pytest.approx(raw_rg, abs=1e-9)
 
 
 def test_gyration_tensor_eigenvalues_sum_to_rg_squared():

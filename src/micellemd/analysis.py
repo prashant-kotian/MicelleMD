@@ -13,11 +13,58 @@ from __future__ import annotations
 import math
 
 
+def unwrap_cluster_positions(molecule_positions: list[list[tuple[float, float, float]]],
+                             box_size_nm: float) -> list[tuple[float, float, float]]:
+    """Make a cluster whole across periodic boundaries before computing any
+    real-space quantity (like Rg) on it -- returns one flat list of
+    unwrapped bead positions across every molecule in the cluster.
+
+    REAL BUG FOUND, 2026-09-06: find_aggregates() (below) correctly
+    identifies cluster membership via a minimum-image-aware distance check
+    (box_size_nm parameter), but the raw bead positions it operates on stay
+    box-wrapped -- two molecules can be genuine neighbours across a
+    periodic boundary (e.g. one at x=0.1 nm, the other at x=14.9 nm in a
+    15 nm box) while their RAW Cartesian positions are ~14.8 nm apart.
+    run_cg_production.py was feeding exactly these raw positions straight
+    into radius_of_gyration(), silently producing physically implausible
+    Rg values (observed live: ~11.2-11.3 nm sustained across several log
+    entries, in a 15 nm box, for a 21-bead-molecule aggregate that should
+    have an Rg on the order of 1-2 nm) whenever the largest aggregate
+    happened to straddle the box boundary. This is the exact same bug
+    class already found and fixed in atomistic_analysis.py's own
+    unwrap_cluster_positions() -- that fix was never carried over to this
+    CG-side module, which has its own independent (numpy-free) position
+    representation.
+
+    Fixed the same way: shift every molecule's positions by the periodic
+    image that minimizes its distance to a fixed reference point (the
+    first bead of the first molecule in the cluster), an orthorhombic-box
+    minimum-image unwrap -- valid here since build_openmm_system()/
+    build_solvated_openmm_system() both construct cubic boxes.
+    """
+    if not molecule_positions or not molecule_positions[0]:
+        return []
+    ref = molecule_positions[0][0]
+    unwrapped = []
+    for mol in molecule_positions:
+        for p in mol:
+            shifted = tuple(
+                p[k] - box_size_nm * round((p[k] - ref[k]) / box_size_nm)
+                for k in range(3)
+            )
+            unwrapped.append(shifted)
+    return unwrapped
+
+
 def radius_of_gyration(positions: list[tuple[float, float, float]]) -> float:
     """Standard Rg formula: sqrt(mean squared distance from the
     center of mass). Equal bead masses assumed here (true for the
     placeholder model in cg_model.py); pass mass-weighted positions
-    upstream if that assumption ever changes."""
+    upstream if that assumption ever changes.
+
+    Does NOT itself handle periodic boundaries -- for a cluster that may
+    span a periodic box, call unwrap_cluster_positions() first (see that
+    function's docstring for a real bug this exact gap caused)."""
     n = len(positions)
     if n == 0:
         return 0.0

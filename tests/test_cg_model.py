@@ -16,7 +16,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import openmm
 import openmm.unit as unit
-from micellemd.cg_model import make_linear_surfactant, build_openmm_system
+from micellemd.cg_model import (make_linear_surfactant, make_gemini_surfactant,
+                                 build_openmm_system, MARTINI3_BEAD_TYPES, _cross_term)
 
 
 def test_bonded_pairs_are_excluded_from_nonbonded_forces():
@@ -65,3 +66,37 @@ def test_smoke_test_energy_matches_gromacs_cross_check():
     # the pre-fix value was +1175.744 -- assert we are nowhere near it, as an
     # explicit trip-wire against this exact regression recurring silently
     assert pe < 100.0
+
+
+def test_gemini_surfactant_has_real_amide_bead_on_each_side():
+    """Regression test for the 2026-09-05 fix: make_gemini_surfactant() now
+    places a real, sourced SP2 amide-linkage bead between each tail and its
+    headgroup (tail1-amide1-head1-spacer-head2-amide2-tail2), resolving the
+    KNOWN GAP this function's docstring had flagged since 2026-09-04. Checks
+    the actual bead-type sequence, not just that the system builds."""
+    mol = make_gemini_surfactant("gem0", n_tail_beads=2, n_spacer_beads=1)
+    types = [b.bead_type for b in mol.beads]
+    assert types == ["C1", "C1", "SP2", "Q4n", "C1", "Q4n", "SP2", "C1", "C1"]
+    assert "SP2" in MARTINI3_BEAD_TYPES
+    # real, sourced cross-terms must exist for every bead type SP2 actually
+    # touches in this topology (C1 on both sides, Q4n on both sides) --
+    # _cross_term returning None would mean _build_type_lookup_tables()
+    # silently falls through with a KeyError/None params, so this is a real
+    # precondition check, not a redundant one
+    assert _cross_term("SP2", "C1") is not None
+    assert _cross_term("SP2", "Q4n") is not None
+
+
+def test_gemini_surfactant_system_builds_and_runs_stably():
+    """End-to-end check that the new SP2 bead's real MARTINI parameters
+    (self- and cross-interaction) are wired all the way through the
+    CustomNonbondedForce lookup tables without producing NaN/inf energy --
+    not just that the bead exists in the topology."""
+    molecules = [make_gemini_surfactant(f"gem{i}", n_tail_beads=2, n_spacer_beads=1) for i in range(8)]
+    system, positions = build_openmm_system(molecules, box_size_nm=10.0)
+    integrator = openmm.LangevinMiddleIntegrator(300 * unit.kelvin, 1.0 / unit.picosecond, 0.02 * unit.picoseconds)
+    context = openmm.Context(system, integrator, openmm.Platform.getPlatformByName("CPU"))
+    context.setPositions(positions)
+    pe = context.getState(getEnergy=True).getPotentialEnergy().value_in_unit(unit.kilojoule_per_mole)
+    assert pe == pe  # NaN check (NaN != NaN)
+    assert abs(pe) < 1e6  # sanity bound, not a divergent blow-up

@@ -48,7 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src" / "micellemd"
 import openmm
 import openmm.unit as unit
 from cg_model import make_linear_surfactant, build_solvated_openmm_system
-from analysis import find_aggregates, aggregation_number_distribution, radius_of_gyration
+from analysis import find_aggregates, aggregation_number_distribution, radius_of_gyration, unwrap_cluster_positions
 
 OUTPUT_DIR = Path(__file__).resolve().parent / "cg_production_results"
 CHECKPOINT_PATH = OUTPUT_DIR / "production.chk"
@@ -89,7 +89,14 @@ def snapshot_aggregates(context, molecules, n_surfactants: int) -> dict:
     aggregates = find_aggregates(per_molecule, cutoff_nm=AGGREGATE_CUTOFF_NM, box_size_nm=BOX_SIZE_NM)
     dist = aggregation_number_distribution(aggregates)
     largest = max(aggregates, key=len)
-    largest_rg = radius_of_gyration([p for mol_idx in largest for p in per_molecule[mol_idx]])
+    # REAL BUG FIXED 2026-09-06: this used to feed raw, still-wrapped
+    # positions directly into radius_of_gyration(), silently producing
+    # physically implausible Rg whenever the largest aggregate straddled
+    # the periodic box boundary (observed live: ~11.2-11.3 nm sustained in
+    # a 15 nm box for a 21-molecule aggregate that should be ~1-2 nm) --
+    # see unwrap_cluster_positions()'s own docstring in analysis.py.
+    largest_positions = unwrap_cluster_positions([per_molecule[mol_idx] for mol_idx in largest], BOX_SIZE_NM)
+    largest_rg = radius_of_gyration(largest_positions)
     return {
         "n_aggregates": len(aggregates),
         "aggregation_number_distribution": {str(k): v for k, v in dist.items()},

@@ -28,6 +28,8 @@ mdout.mdp
 gaff_demo_output/
 gmx_test/
 examples/cg_production_results/
+examples/metadynamics_results/
+scratch_md/
 
 # OS / editor
 .DS_Store
