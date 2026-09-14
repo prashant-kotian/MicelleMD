@@ -185,6 +185,45 @@ def make_linear_surfactant(name: str, n_tail_beads: int, headgroup_charge: float
     return CGMolecule(name=name, beads=beads, bonds=bonds)
 
 
+def make_monomeric_amidoamine_surfactant(name: str, n_tail_beads: int, headgroup_charge: float = 1.0,
+                                          headgroup_type: str = "Q1") -> CGMolecule:
+    """A monomeric (single-headed) amidoamine cationic surfactant --
+    tail-amide-head, e.g. the real C14-Et_plus comparator from this
+    project's own collaborator DFT requirement doc (`H:\\download folder
+    from samsung laptop 01082026\\DFT requirement.pdf`): real SMILES
+    CCCCCCCCCCCCCC(=O)NCCC[N+](C)(C)CC -- a C14 acyl tail, an amide
+    linkage, a propyl linker, then a quaternary ammonium headgroup
+    (N-ethyl-N,N-dimethyl).
+
+    Added 2026-09-14, real gap found before it: make_linear_surfactant()
+    bonds its headgroup DIRECTLY to the tail with no amide bead -- correct
+    for SDS's real sulfate-directly-on-alkyl-carbon chemistry, but wrong
+    for this molecule's real amidoamine architecture (tail-C(=O)NH-...-N+).
+    Reusing make_linear_surfactant() here would have been the exact same
+    class of silent-physics error the Q1 headgroup fix corrected -- a
+    structurally different molecule, not just a differently-parameterized
+    one.
+
+    Topology: tail-amide-head, using the real, already-sourced SP2 amide
+    bead (see MARTINI3_BEAD_TYPES) and the real Q1 cationic headgroup bead
+    (see the same dict, sourced from POPC's real choline group). This is
+    literally ONE HALF of make_gemini_surfactant()'s own topology
+    (tail1-amide1-head1-...) -- same simplification already accepted
+    there: the propyl linker between the amide nitrogen and the quaternary
+    nitrogen (3 real carbons, "CCC" in the SMILES) is not given its own
+    bead, absorbed into the direct amide-to-head bond, matching how
+    make_gemini_surfactant() already treats the chemically identical
+    propyl segment on each of its own two sides -- not a new
+    approximation introduced here, the same one already in production use."""
+    beads = []
+    for i in range(n_tail_beads):
+        beads.append(CGBead(name=f"{name}_tail{i}", bead_type="C1", mass_amu=72.0))
+    beads.append(CGBead(name=f"{name}_amide", bead_type="SP2", mass_amu=54.0))
+    beads.append(CGBead(name=f"{name}_head", bead_type=headgroup_type, mass_amu=MARTINI3_BEAD_TYPES[headgroup_type]["mass"], charge=headgroup_charge))
+    bonds = [(i, i + 1) for i in range(len(beads) - 1)]
+    return CGMolecule(name=name, beads=beads, bonds=bonds)
+
+
 def make_gemini_surfactant(name: str, n_tail_beads: int, n_spacer_beads: int,
                            headgroup_charge: float = 1.0, headgroup_type: str = "Q1") -> CGMolecule:
     """A gemini (dimeric) CG surfactant: two head-tail units joined near the

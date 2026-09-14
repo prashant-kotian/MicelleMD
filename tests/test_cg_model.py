@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import openmm
 import openmm.unit as unit
 from micellemd.cg_model import (make_linear_surfactant, make_gemini_surfactant,
+                                 make_monomeric_amidoamine_surfactant,
                                  build_openmm_system, MARTINI3_BEAD_TYPES, _cross_term)
 
 
@@ -146,3 +147,32 @@ def test_gemini_surfactant_system_builds_and_runs_stably():
     pe = context.getState(getEnergy=True).getPotentialEnergy().value_in_unit(unit.kilojoule_per_mole)
     assert pe == pe  # NaN check (NaN != NaN)
     assert abs(pe) < 1e6  # sanity bound, not a divergent blow-up
+
+
+def test_monomeric_amidoamine_surfactant_has_real_amide_bead():
+    """Regression test for the 2026-09-14 addition: make_linear_surfactant()
+    bonds headgroup directly to tail (correct for SDS's real sulfate-on-
+    carbon chemistry), which is WRONG for this project's real amidoamine
+    comparator (C14-Et_plus, tail-amide-head) -- reusing it would have
+    repeated the exact class of silent-physics error the Q1 fix corrected.
+    Checks the actual bead-type sequence, not just that the system builds."""
+    mol = make_monomeric_amidoamine_surfactant("mono0", n_tail_beads=3)
+    types = [b.bead_type for b in mol.beads]
+    assert types == ["C1", "C1", "C1", "SP2", "Q1"]
+    assert mol.beads[-1].charge == pytest.approx(1.0)
+    assert _cross_term("SP2", "C1") is not None
+    assert _cross_term("SP2", "Q1") is not None
+
+
+def test_monomeric_amidoamine_surfactant_system_builds_and_runs_stably():
+    """End-to-end check, same discipline as the gemini equivalent above:
+    confirms the tail-amide-head topology's real MARTINI parameters are
+    wired through the CustomNonbondedForce lookup table without NaN/inf."""
+    molecules = [make_monomeric_amidoamine_surfactant(f"mono{i}", n_tail_beads=3) for i in range(10)]
+    system, positions = build_openmm_system(molecules, box_size_nm=10.0)
+    integrator = openmm.LangevinMiddleIntegrator(300 * unit.kelvin, 1.0 / unit.picosecond, 0.02 * unit.picoseconds)
+    context = openmm.Context(system, integrator, openmm.Platform.getPlatformByName("CPU"))
+    context.setPositions(positions)
+    pe = context.getState(getEnergy=True).getPotentialEnergy().value_in_unit(unit.kilojoule_per_mole)
+    assert pe == pe  # NaN check
+    assert abs(pe) < 1e6
