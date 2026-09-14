@@ -107,6 +107,22 @@ MARTINI3_BEAD_TYPES = {
     # than the guess. Real precedent overrides analogy, per this project's
     # own "verify against real source" discipline.
     "SP2": {"mass": 54.0, "sigma": 0.410, "epsilon": 3.31},
+    # Cationic quaternary-ammonium-type headgroup, added 2026-09-14 to close
+    # a real gap found before the first gemini CATIONIC surfactant production
+    # run: make_gemini_surfactant()'s own docstring says it's for "amidoamine-
+    # derived gemini CATIONIC surfactants", but until now the only headgroup
+    # bead available was Q4n, sourced (see above) specifically for SDS's
+    # ANIONIC sulfate chemistry -- charge sign alone doesn't make a bead
+    # correct; real MARTINI assigns a different type (with different
+    # self/cross LJ params) to a genuinely different chemical group. Not
+    # guessed: verified directly against a real official MARTINI 3 molecule
+    # that has this exact chemistry -- martini_v3.0.0_phospholipids_v1.itp's
+    # POPC entry assigns its choline group (-N(CH3)3+, the same quaternary-
+    # ammonium chemistry as this project's cationic gemini headgroups) bead
+    # type Q1, charge +1.0. Self-term below is Q1's own [nonbond_params]
+    # self-interaction entry in martini_v3.0.0.itp, same file/section as
+    # every other entry in this dict.
+    "Q1": {"mass": 72.0, "sigma": 0.470, "epsilon": 3.980},
 }
 
 # Real MARTINI 3 cross-species (different bead type) nonbonded parameters --
@@ -129,6 +145,18 @@ NONBONDED_CROSS_TERMS = {
     ("SP2", "C1"):  {"sigma": 0.430, "epsilon": 1.930},
     ("SP2", "Q4n"): {"sigma": 0.430, "epsilon": 4.848},
     ("SP2", "W"):   {"sigma": 0.425, "epsilon": 4.030},
+    # Q1 cross-terms, sourced 2026-09-14 alongside the Q1 self-term above --
+    # same file, same [nonbond_params] section, grepped directly. Q4n-Q1 is
+    # included even though no single molecule currently mixes them (a gemini
+    # built with Q1 vs. SDS built with Q4n are separate molecules) because
+    # this project's own stated next step is a gemini+SDS MIXTURE system --
+    # both types will coexist in one System's global lookup table then, and
+    # _build_type_lookup_tables() hard-errors on any missing pair rather than
+    # silently defaulting, so this needed sourcing now, not deferring.
+    ("C1", "Q1"):  {"sigma": 0.485, "epsilon": 2.578},
+    ("Q1", "W"):   {"sigma": 0.465, "epsilon": 5.220},
+    ("SP2", "Q1"): {"sigma": 0.430, "epsilon": 4.444},
+    ("Q4n", "Q1"): {"sigma": 0.470, "epsilon": 3.790},
 }
 
 
@@ -137,12 +165,20 @@ def _cross_term(type_a: str, type_b: str) -> dict | None:
     return NONBONDED_CROSS_TERMS.get((type_a, type_b)) or NONBONDED_CROSS_TERMS.get((type_b, type_a))
 
 
-def make_linear_surfactant(name: str, n_tail_beads: int, headgroup_charge: float = 1.0) -> CGMolecule:
+def make_linear_surfactant(name: str, n_tail_beads: int, headgroup_charge: float = 1.0,
+                            headgroup_type: str = "Q4n") -> CGMolecule:
     """A simple linear CG surfactant: 1 headgroup bead + n_tail_beads
     hydrophobic tail beads in a chain -- structurally analogous to how a
     real MARTINI surfactant (e.g. SDS: 1 polar bead + 3 tail beads) is
-    built, using real MARTINI 3 bead parameters (see module docstring)."""
-    beads = [CGBead(name=f"{name}_head", bead_type="Q4n", mass_amu=72.0, charge=headgroup_charge)]
+    built, using real MARTINI 3 bead parameters (see module docstring).
+
+    headgroup_type: real MARTINI 3 bead type for the headgroup -- default
+    "Q4n" is the anionic sulfate bead this project's SDS work has always
+    used (unchanged, backward compatible). Pass "Q1" for a real cationic
+    quaternary-ammonium headgroup (e.g. a DTAB/CTAB-analog linear cationic
+    surfactant) -- see MARTINI3_BEAD_TYPES' own comment for Q1's real
+    sourcing (POPC's choline bead in the official MARTINI 3 force field)."""
+    beads = [CGBead(name=f"{name}_head", bead_type=headgroup_type, mass_amu=MARTINI3_BEAD_TYPES[headgroup_type]["mass"], charge=headgroup_charge)]
     for i in range(n_tail_beads):
         beads.append(CGBead(name=f"{name}_tail{i}", bead_type="C1", mass_amu=72.0))
     bonds = [(i, i + 1) for i in range(len(beads) - 1)]
@@ -150,7 +186,7 @@ def make_linear_surfactant(name: str, n_tail_beads: int, headgroup_charge: float
 
 
 def make_gemini_surfactant(name: str, n_tail_beads: int, n_spacer_beads: int,
-                           headgroup_charge: float = 1.0) -> CGMolecule:
+                           headgroup_charge: float = 1.0, headgroup_type: str = "Q1") -> CGMolecule:
     """A gemini (dimeric) CG surfactant: two head-tail units joined near the
     headgroups by a spacer -- the actual PhD thesis architecture (amidoamine-
     derived gemini cationic surfactants), not just a generic linear chain.
@@ -179,6 +215,16 @@ def make_gemini_surfactant(name: str, n_tail_beads: int, n_spacer_beads: int,
     (see MARTINI3_BEAD_TYPES' own comment for the exact provenance and the
     real ceramide precedent this was based on), the same sourcing rigor the
     original Q4n/C1/W values got -- not just a label bolted on.
+
+    RESOLVED 2026-09-14 (was a real, undisclosed gap until now, found before
+    the first gemini CATIONIC production run: this function's own default
+    headgroup silently used Q4n -- the ANIONIC SDS-sulfate bead -- for a
+    function whose whole stated purpose is cationic geminis). Default
+    headgroup_type is now "Q1", the real MARTINI 3 quaternary-ammonium bead
+    (sourced from POPC's real choline group, see MARTINI3_BEAD_TYPES'
+    comment) -- correct for this project's actual amidoamine-derived
+    cationic headgroup chemistry. Pass headgroup_type="Q4n" explicitly if an
+    anionic gemini variant is ever needed.
     """
     beads = []
     # tail 1 -> amide1 -> head1 (built head-to-tail so bond order is contiguous)
@@ -186,12 +232,12 @@ def make_gemini_surfactant(name: str, n_tail_beads: int, n_spacer_beads: int,
         beads.append(CGBead(name=f"{name}_tail1_{i}", bead_type="C1", mass_amu=72.0))
     beads.append(CGBead(name=f"{name}_amide1", bead_type="SP2", mass_amu=54.0))
     head1_idx = len(beads)
-    beads.append(CGBead(name=f"{name}_head1", bead_type="Q4n", mass_amu=72.0, charge=headgroup_charge))
+    beads.append(CGBead(name=f"{name}_head1", bead_type=headgroup_type, mass_amu=MARTINI3_BEAD_TYPES[headgroup_type]["mass"], charge=headgroup_charge))
     spacer_start = len(beads)
     for i in range(n_spacer_beads):
         beads.append(CGBead(name=f"{name}_spacer{i}", bead_type="C1", mass_amu=72.0))
     head2_idx = len(beads)
-    beads.append(CGBead(name=f"{name}_head2", bead_type="Q4n", mass_amu=72.0, charge=headgroup_charge))
+    beads.append(CGBead(name=f"{name}_head2", bead_type=headgroup_type, mass_amu=MARTINI3_BEAD_TYPES[headgroup_type]["mass"], charge=headgroup_charge))
     beads.append(CGBead(name=f"{name}_amide2", bead_type="SP2", mass_amu=54.0))
     for i in range(n_tail_beads):
         beads.append(CGBead(name=f"{name}_tail2_{i}", bead_type="C1", mass_amu=72.0))
@@ -200,7 +246,7 @@ def make_gemini_surfactant(name: str, n_tail_beads: int, n_spacer_beads: int,
     return CGMolecule(name=name, beads=beads, bonds=bonds)
 
 
-_BEAD_TYPE_ORDER = ["C1", "Q4n", "W", "SP2"]  # fixed enumeration for the CustomNonbondedForce type-index lookup table below
+_BEAD_TYPE_ORDER = ["C1", "Q4n", "W", "SP2", "Q1"]  # fixed enumeration for the CustomNonbondedForce type-index lookup table below
 _N_BEAD_TYPES = len(_BEAD_TYPE_ORDER)
 
 

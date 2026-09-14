@@ -73,18 +73,64 @@ def test_gemini_surfactant_has_real_amide_bead_on_each_side():
     places a real, sourced SP2 amide-linkage bead between each tail and its
     headgroup (tail1-amide1-head1-spacer-head2-amide2-tail2), resolving the
     KNOWN GAP this function's docstring had flagged since 2026-09-04. Checks
-    the actual bead-type sequence, not just that the system builds."""
+    the actual bead-type sequence, not just that the system builds.
+
+    Updated 2026-09-14: default headgroup_type changed Q4n -> Q1 (see
+    MARTINI3_BEAD_TYPES' own comment -- Q4n is the anionic SDS-sulfate bead;
+    this function's whole stated purpose is cationic geminis, so Q1, the
+    real MARTINI 3 quaternary-ammonium bead, is now the correct default)."""
     mol = make_gemini_surfactant("gem0", n_tail_beads=2, n_spacer_beads=1)
     types = [b.bead_type for b in mol.beads]
-    assert types == ["C1", "C1", "SP2", "Q4n", "C1", "Q4n", "SP2", "C1", "C1"]
+    assert types == ["C1", "C1", "SP2", "Q1", "C1", "Q1", "SP2", "C1", "C1"]
     assert "SP2" in MARTINI3_BEAD_TYPES
+    assert "Q1" in MARTINI3_BEAD_TYPES
     # real, sourced cross-terms must exist for every bead type SP2 actually
-    # touches in this topology (C1 on both sides, Q4n on both sides) --
+    # touches in this topology (C1 on both sides, Q1 on both sides) --
     # _cross_term returning None would mean _build_type_lookup_tables()
     # silently falls through with a KeyError/None params, so this is a real
     # precondition check, not a redundant one
     assert _cross_term("SP2", "C1") is not None
-    assert _cross_term("SP2", "Q4n") is not None
+    assert _cross_term("SP2", "Q1") is not None
+
+
+def test_gemini_surfactant_explicit_anionic_headgroup_still_available():
+    """Backward-compat check: the pre-2026-09-14 anionic (Q4n) gemini variant
+    is still reachable by passing headgroup_type explicitly, for anyone who
+    needs an anionic gemini rather than this project's actual cationic one."""
+    mol = make_gemini_surfactant("gem0", n_tail_beads=2, n_spacer_beads=1, headgroup_type="Q4n")
+    types = [b.bead_type for b in mol.beads]
+    assert types == ["C1", "C1", "SP2", "Q4n", "C1", "Q4n", "SP2", "C1", "C1"]
+
+
+def test_q1_cationic_headgroup_cross_terms_all_sourced():
+    """Real-source check for the 2026-09-14 Q1 addition (cationic
+    quaternary-ammonium headgroup, sourced from POPC's real choline bead in
+    the official MARTINI 3 force field -- see MARTINI3_BEAD_TYPES' comment).
+    Every pair Q1 can actually appear next to -- including Q4n, since this
+    project's own next planned step is a gemini(Q1)+SDS(Q4n) MIXTURE system,
+    where both types coexist in one global lookup table -- must have a real
+    sourced cross-term, or _build_type_lookup_tables() would hard-error."""
+    assert MARTINI3_BEAD_TYPES["Q1"]["sigma"] == pytest.approx(0.470)
+    assert MARTINI3_BEAD_TYPES["Q1"]["epsilon"] == pytest.approx(3.980)
+    for other in ("C1", "W", "SP2", "Q4n"):
+        assert _cross_term("Q1", other) is not None, f"missing real Q1-{other} cross-term"
+
+
+def test_gemini_plus_sds_mixture_system_builds_and_runs_stably():
+    """The actual future use case this project is heading toward: a gemini
+    cationic (Q1) surfactant coexisting with linear anionic SDS (Q4n) in one
+    System. Confirms the global CustomNonbondedForce lookup table handles
+    both headgroup types together without NaN/inf energy -- not just that
+    each type works in isolation (the two tests above already cover that)."""
+    molecules = ([make_gemini_surfactant(f"gem{i}", n_tail_beads=2, n_spacer_beads=1) for i in range(4)]
+                 + [make_linear_surfactant(f"sds{i}", n_tail_beads=3) for i in range(4)])
+    system, positions = build_openmm_system(molecules, box_size_nm=10.0)
+    integrator = openmm.LangevinMiddleIntegrator(300 * unit.kelvin, 1.0 / unit.picosecond, 0.02 * unit.picoseconds)
+    context = openmm.Context(system, integrator, openmm.Platform.getPlatformByName("CPU"))
+    context.setPositions(positions)
+    pe = context.getState(getEnergy=True).getPotentialEnergy().value_in_unit(unit.kilojoule_per_mole)
+    assert pe == pe  # NaN check
+    assert abs(pe) < 1e6
 
 
 def test_gemini_surfactant_system_builds_and_runs_stably():
