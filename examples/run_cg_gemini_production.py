@@ -135,8 +135,8 @@ def snapshot_aggregates(context, molecules, n_surfactants: int, box_size_nm: flo
     }
 
 
-def run_benchmark(system, positions, n_steps: int = 500) -> tuple[float, float]:
-    context, integrator = make_context(system)
+def run_benchmark(system, positions, n_steps: int = 500, platform_name: str = "CPU") -> tuple[float, float]:
+    context, integrator = make_context(system, platform_name)
     context.setPositions(positions)
     context.setVelocitiesToTemperature(TEMPERATURE_K * unit.kelvin)
     context.getState(getEnergy=True)  # warm up
@@ -155,6 +155,7 @@ def main():
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--total-ns", type=float, default=None, help="override the auto-picked total run length")
     parser.add_argument("--smoke-test", action="store_true", help="tiny system (10 molecules), few steps -- verifies setup only")
+    parser.add_argument("--platform", type=str, default="CPU", help="OpenMM platform name, e.g. CPU or CUDA")
     args = parser.parse_args()
 
     OUTPUT_DIR.mkdir(exist_ok=True)
@@ -165,7 +166,7 @@ def main():
         n_water = len(molecules) - 8
         print(f"Built: {system.getNumParticles()} total particles "
               f"(8 gemini x {BEADS_PER_MOLECULE} beads = {8*BEADS_PER_MOLECULE} surfactant beads, {n_water} water beads)")
-        context, integrator = make_context(system)
+        context, integrator = make_context(system, args.platform)
         context.setPositions(positions)
         context.setVelocitiesToTemperature(TEMPERATURE_K * unit.kelvin)
         pe0 = context.getState(getEnergy=True).getPotentialEnergy().value_in_unit(unit.kilojoule_per_mole)
@@ -190,8 +191,8 @@ def main():
           f"({N_SURFACTANTS} surfactants x {BEADS_PER_MOLECULE} beads = {N_SURFACTANTS*BEADS_PER_MOLECULE} beads, "
           f"{n_water} explicit water beads)")
 
-    print("\nBenchmarking real throughput on this machine (CPU platform, 500 steps)...")
-    steps_per_sec, ns_per_day = run_benchmark(system, positions, n_steps=500)
+    print(f"\nBenchmarking real throughput on this machine ({args.platform} platform, 500 steps)...")
+    steps_per_sec, ns_per_day = run_benchmark(system, positions, n_steps=500, platform_name=args.platform)
     print(f"Benchmark: {steps_per_sec:.1f} steps/sec = {ns_per_day:.2f} ns/day")
 
     if args.benchmark_only:
@@ -207,7 +208,7 @@ def main():
     print(f"\nPlanned production run: {total_ns:.2f} ns ({total_steps:,} steps), "
           f"estimated wall time {est_wall_hours:.1f} h at the measured benchmark rate")
 
-    context, integrator = make_context(system)
+    context, integrator = make_context(system, args.platform)
 
     if args.resume and CHECKPOINT_PATH.exists():
         print(f"Resuming from checkpoint: {CHECKPOINT_PATH}")
