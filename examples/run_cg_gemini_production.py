@@ -26,13 +26,13 @@ own validated template for a real production CG self-assembly run:
   already anticipated. This is a real approximation (4-carbon CG
   resolution can't distinguish C12/C14/C16 as finely as the real atomistic
   chain-length series can), stated honestly, not hidden.
-- N_SURFACTANTS=100, not SDS's 150: each gemini molecule is 11 beads (vs.
-  SDS's 4), so 100 was chosen as a real, previously-validated scale in
-  this project (the atomistic GAFF/acpype route's own "scaled to 100"
-  precedent) rather than blindly copying SDS's molecule count onto a much
-  bigger per-molecule system. Same 15.0 nm box as SDS (already-validated
-  water density/placement at this box size).
-- Net system charge is real and large (+2 x 100 = +200 e, vs. SDS's own
+- N_SURFACTANTS=50, not SDS's 150: each gemini molecule is 11 beads (vs.
+  SDS's 4), so 50 was chosen as a real, deliberately smaller scale given
+  the much bigger per-molecule system (11 beads x 50 is already close to
+  SDS's own 150 x 4 in total surfactant-bead count). Box widened to 24.0
+  nm (vs. SDS's 15.0 nm) to give this larger, more highly-charged system
+  more room.
+- Net system charge is real and large (+2 x 50 = +100 e, vs. SDS's own
   already-accepted -150 e) -- counterions are not modeled as explicit
   particles anywhere in this project (see cg_model.py's own module
   docstring); PME's implicit uniform neutralizing background handles this
@@ -220,7 +220,14 @@ def main():
             lines = [l for l in LOG_PATH.read_text().splitlines() if l.strip()]
             if lines:
                 start_step = json.loads(lines[-1])["steps_done"]
-        print(f"Resumed from checkpoint at step {start_step:,} (per the log's last entry)")
+        # total_steps above was computed as an ABSOLUTE step count sized to fit
+        # target_wall_hours from a fresh benchmark -- on resume that's already
+        # roughly where start_step sits, so without this offset the run below
+        # would do zero (or near-zero) new steps and immediately report "DONE".
+        # Real bug found 2026-09-17 checking the Kaggle chunk before relaunching it.
+        total_steps += start_step
+        print(f"Resumed from checkpoint at step {start_step:,} (per the log's last entry); "
+              f"new target after adding this chunk's budget: {total_steps:,} steps")
     else:
         context.setPositions(positions)
         context.setVelocitiesToTemperature(TEMPERATURE_K * unit.kelvin)
