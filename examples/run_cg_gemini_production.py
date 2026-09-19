@@ -213,8 +213,34 @@ def main():
     if args.resume and CHECKPOINT_PATH.exists():
         print(f"Resuming from checkpoint: {CHECKPOINT_PATH}")
         context.setPositions(positions)
+        # REAL BUG FOUND 2026-09-19, checking a completed Kaggle chunk that ran
+        # clean (exit 0, no exception anywhere) but had silently NOT restored
+        # the checkpoint's real state -- the run's own log started fresh from
+        # dispersed monomers instead of the checkpoint's 3-aggregate state.
+        # Verified directly (SSH to the Ubuntu machine, real OpenMM API test):
+        # loadCheckpoint() DOES raise cleanly on a platform-name or particle-
+        # count mismatch, so neither of those is the cause here -- something
+        # more subtle silently no-op'd instead. Since the failure mode is
+        # "completes successfully but the state is wrong," a hard-fail here
+        # is the only way to catch it fast (seconds) instead of finding out
+        # after a full paid-for GPU session. Compare a real position BEFORE
+        # loadCheckpoint (the fresh grid position, known and deterministic)
+        # against the SAME position AFTER -- if they're identical, the load
+        # was a genuine no-op regardless of why, and continuing would silently
+        # waste the whole session on a fresh run mislabeled as a resume.
+        pre_load_first_particle = context.getState(getPositions=True).getPositions()[0]
         with open(CHECKPOINT_PATH, "rb") as f:
             context.loadCheckpoint(f.read())
+        post_load_first_particle = context.getState(getPositions=True).getPositions()[0]
+        if pre_load_first_particle == post_load_first_particle:
+            raise RuntimeError(
+                "loadCheckpoint() completed without raising, but particle 0's position is "
+                f"IDENTICAL before ({pre_load_first_particle}) and after ({post_load_first_particle}) "
+                "the load -- this means the checkpoint was silently NOT applied. Aborting instead of "
+                "running a full session that would silently mislabel a fresh run as a resume."
+            )
+        print(f"Checkpoint load verified real: particle 0 moved from {pre_load_first_particle} "
+              f"(fresh grid position) to {post_load_first_particle} (checkpoint position)")
         start_step = 0
         if LOG_PATH.exists():
             lines = [l for l in LOG_PATH.read_text().splitlines() if l.strip()]
