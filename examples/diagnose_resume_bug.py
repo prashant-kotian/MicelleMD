@@ -46,7 +46,11 @@ from run_cg_gemini_production import (
 OUTPUT_DIR = Path(__file__).resolve().parent / "cg_gemini_c14_s3_results"
 CHECKPOINT_PATH = OUTPUT_DIR / "production.chk"
 
-SNAPSHOT_STEPS = [0, 2000, 2000, 2000, 2000, 2000]  # cumulative: 0,2k,4k,6k,8k,10k
+SNAPSHOT_STEPS = [0, 2000, 2000, 2000, 2000, 2000, 5000, 5000, 5000, 5000]
+# cumulative: 0,2k,4k,6k,8k,10k,15k,20k,25k,30k -- extended past 10k (first
+# pass: stable through 10k, contradicting chunk 3's reported dispersal at
+# its first checkpoint interval, 25k steps) specifically to cover that exact
+# 25k-step mark and a bit beyond it.
 
 
 def main():
