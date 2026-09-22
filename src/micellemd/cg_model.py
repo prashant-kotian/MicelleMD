@@ -61,8 +61,10 @@ unchanged by this update.
 
 from __future__ import annotations
 from dataclasses import dataclass, field
+import numpy as np
 import openmm
 import openmm.unit as unit
+from scipy.spatial import cKDTree
 
 
 @dataclass
@@ -532,15 +534,40 @@ def build_solvated_openmm_system(surfactant_molecules: list[CGMolecule], box_siz
     water_type_idx = float(_BEAD_TYPE_ORDER.index("W"))
     water_params = MARTINI3_BEAD_TYPES["W"]
 
-    import itertools
+    # REAL PERFORMANCE FIX, 2026-09-22 (found while scaling the gemini system
+    # 50->500 monomers, see ROADMAP.md): this loop's overlap check was a
+    # brute-force "candidate vs every surfactant bead" scan -- O(n_water
+    # candidates * n_surfactant_beads) in pure Python. Fine at the original
+    # scale (~118k candidates * 550 beads = ~65M comparisons, seconds), but
+    # scales as volume*monomers together, so a 10x monomer increase (which
+    # also needs ~10x volume to hold concentration fixed) is a ~100x blowup
+    # (~1.37M candidates * 5,500 beads = ~7.5 BILLION comparisons) -- would
+    # have taken hours just to build the system, before any MD step runs.
+    # Fixed with a KD-tree (scipy.spatial.cKDTree): O(n_candidates *
+    # log(n_beads)) instead. Deliberately NOT using cKDTree's own periodic
+    # `boxsize` support -- the original check was plain (non-periodic)
+    # Euclidean distance, and this fix must be a pure performance change,
+    # not a silent physics change to a system whose earlier scale (N=50,
+    # chunks 2-4) is already-published/compared data.
     surfactant_positions = list(positions)  # snapshot for overlap checks, before any water is added
-    for ix, iy, iz in itertools.product(range(water_per_axis), repeat=3):
+    idx_range = np.arange(water_per_axis)
+    ix_grid, iy_grid, iz_grid = np.meshgrid(idx_range, idx_range, idx_range, indexing="ij")
+    # .ravel() (C order, last axis fastest) matches itertools.product(range(n), repeat=3)'s
+    # own iteration order exactly, so which grid points get chosen (given n_water_target)
+    # is identical to the old code's behavior, not just its total count.
+    candidates_nm = (np.stack([ix_grid.ravel(), iy_grid.ravel(), iz_grid.ravel()], axis=1)
+                      .astype(float) * water_spacing_nm)
+    if surfactant_positions:
+        surfactant_arr = np.array([[p.x, p.y, p.z] for p in surfactant_positions])
+        nearest_dist, _ = cKDTree(surfactant_arr).query(candidates_nm, k=1)
+        keep = nearest_dist >= water_min_distance_nm
+    else:
+        keep = np.ones(len(candidates_nm), dtype=bool)
+
+    for cx, cy, cz in candidates_nm[keep]:
         if n_water_placed >= n_water_target:
             break
-        pos = openmm.Vec3(ix * water_spacing_nm, iy * water_spacing_nm, iz * water_spacing_nm)
-        if any((pos.x - p.x) ** 2 + (pos.y - p.y) ** 2 + (pos.z - p.z) ** 2 < water_min_distance_nm ** 2
-               for p in surfactant_positions):
-            continue
+        pos = openmm.Vec3(float(cx), float(cy), float(cz))
         system.addParticle(water_params["mass"] * unit.amu)
         lj_force.addParticle([water_type_idx])
         coulomb_force.addParticle(0.0, 0.1 * unit.nanometer, 0.0 * unit.kilojoule_per_mole)

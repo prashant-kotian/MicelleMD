@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Prashant D. Kotian" }]
 keywords = ["surfactant", "micelle", "molecular-dynamics", "coarse-grained", "self-assembly"]
-dependencies = ["openmm"]
+dependencies = ["openmm", "numpy", "scipy"]
 
 [project.optional-dependencies]
 dev = ["pytest"]

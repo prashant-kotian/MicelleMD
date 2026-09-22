@@ -26,13 +26,34 @@ own validated template for a real production CG self-assembly run:
   already anticipated. This is a real approximation (4-carbon CG
   resolution can't distinguish C12/C14/C16 as finely as the real atomistic
   chain-length series can), stated honestly, not hidden.
-- N_SURFACTANTS=50, not SDS's 150: each gemini molecule is 11 beads (vs.
-  SDS's 4), so 50 was chosen as a real, deliberately smaller scale given
-  the much bigger per-molecule system (11 beads x 50 is already close to
-  SDS's own 150 x 4 in total surfactant-bead count). Box widened to 24.0
-  nm (vs. SDS's 15.0 nm) to give this larger, more highly-charged system
-  more room.
-- Net system charge is real and large (+2 x 50 = +100 e, vs. SDS's own
+- N_SURFACTANTS=500 (raised from the original 50 on 2026-09-22, see
+  ROADMAP.md): chunks 2-4 at N=50 reached a genuine, reproducible
+  3-aggregate plateau (sizes 15/16/19, identical across three independent
+  ~10h extensions). A real literature comparison (Wang et al., PCCP 2017,
+  spacer-length CG-MD study of dimethylcetylammonium-bromide geminis)
+  found morphology shifts from spherical -> wormlike -> vesicle as spacer
+  length DECREASES -- this molecule's spacer (n_spacer_beads=1) is the
+  shortest in this project's own model, so literature predicts an
+  extended, not small-spherical, equilibrium morphology. A real
+  finite-size-effects study (arXiv 2012.00315) found aggregation-number
+  artifacts diminish once a system supports ~3 simultaneous micelles
+  (already true at N=50) but validated its own larger, more reliable CG
+  example at 500 molecules -- chosen here to match, since the open
+  question is whether a SINGLE aggregate can grow large/extended given
+  enough raw material, not just whether the mean aggregation number is
+  statistically stable.
+  Box widened from 24.0 nm to 54.0 nm: two independent real constraints,
+  both satisfied by this value, not just one. (1) Concentration: holding
+  the original N=50/24.0nm concentration fixed at 10x the molecules needs
+  10x the volume, i.e. box scaled by 10**(1/3) = 24.0*2.154 = 51.7 nm;
+  54.0 nm is a real, disclosed ~14% more-dilute deviation from that exact
+  value, not a hidden error, kept for margin against (2). (2) Placement
+  grid: build_solvated_openmm_system() places molecules on a
+  SURFACTANT_SPACING_NM=6.0 nm grid, needing grid_points_per_axis^3 >=
+  N_SURFACTANTS -- 500^(1/3)=7.94 needs >=8 points/axis (>=48.0 nm
+  minimum, no margin); 54.0 nm gives 9 points/axis (729 slots, comfortable
+  margin over the 500 needed).
+- Net system charge is real and large (+2 x 500 = +1000 e, vs. SDS's own
   already-accepted -150 e) -- counterions are not modeled as explicit
   particles anywhere in this project (see cg_model.py's own module
   docstring); PME's implicit uniform neutralizing background handles this
@@ -66,15 +87,15 @@ import openmm.unit as unit
 from cg_model import make_gemini_surfactant, build_solvated_openmm_system
 from analysis import find_aggregates, aggregation_number_distribution, radius_of_gyration, unwrap_cluster_positions
 
-OUTPUT_DIR = Path(__file__).resolve().parent / "cg_gemini_c14_s3_results"
+OUTPUT_DIR = Path(__file__).resolve().parent / "cg_gemini_c14_s3_500mer_results"
 CHECKPOINT_PATH = OUTPUT_DIR / "production.chk"
 LOG_PATH = OUTPUT_DIR / "production_log.jsonl"
 
-N_SURFACTANTS = 50
+N_SURFACTANTS = 500
 N_TAIL_BEADS = 3
 N_SPACER_BEADS = 1
 BEADS_PER_MOLECULE = 2 * N_TAIL_BEADS + 2 + 1 + 2  # tail1 + amide1 + head1 + spacer + head2 + amide2 + tail2 = 11
-BOX_SIZE_NM = 24.0
+BOX_SIZE_NM = 54.0
 # REAL PROBLEM FOUND AND FIXED 2026-09-14, via this script's own smoke test
 # (exactly what it exists to catch): build_solvated_openmm_system() places
 # each molecule as a straight chain along +z from a 3D grid origin, using
